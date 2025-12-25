@@ -1,4 +1,4 @@
-package com.negociodigital.boomday
+package com.negociodigital.boomday.ui.navigation
 
 sealed class Screen(val route: String) {
     object Feed : Screen("feed")

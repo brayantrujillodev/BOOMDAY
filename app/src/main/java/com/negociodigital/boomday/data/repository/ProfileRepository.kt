@@ -1,4 +1,4 @@
-package com.negociodigital.boomday.uy.profile
+package com.negociodigital.boomday.data.repository
 
 import android.content.Context
 import com.google.firebase.auth.FirebaseAuth

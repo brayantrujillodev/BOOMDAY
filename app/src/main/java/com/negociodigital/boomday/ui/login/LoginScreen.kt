@@ -1,4 +1,4 @@
-package com.negociodigital.boomday.uy.auth
+package com.negociodigital.boomday.ui.login
 
 import android.util.Log
 import androidx.compose.foundation.layout.*

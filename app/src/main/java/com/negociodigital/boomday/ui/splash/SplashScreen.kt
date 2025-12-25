@@ -1,4 +1,4 @@
-package com.negociodigital.boomday.uy.splash
+package com.negociodigital.boomday.ui.splash
 
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.Image

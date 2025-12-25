@@ -1,4 +1,4 @@
-package com.negociodigital.boomday.uy.profile
+package com.negociodigital.boomday.ui.profile
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*

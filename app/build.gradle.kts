@@ -106,4 +106,7 @@ dependencies {
     // Debug
     debugImplementation(libs.androidx.ui.tooling)
     debugImplementation(libs.androidx.ui.test.manifest)
+
+    // Timber - Logging profesional
+    implementation("com.jakewharton.timber:timber:5.0.1")
 }
