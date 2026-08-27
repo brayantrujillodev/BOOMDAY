@@ -17,6 +17,7 @@ import com.negociodigital.boomday.ui.login.LoginScreen
 import com.negociodigital.boomday.ui.login.LoginViewModel
 import com.negociodigital.boomday.ui.main.MainScreen
 import com.negociodigital.boomday.ui.splash.SplashScreen
+import com.negociodigital.boomday.ui.upload.UploadFlowScreen
 
 /**
  * Definición de rutas de navegación de nivel superior.
@@ -25,11 +26,14 @@ import com.negociodigital.boomday.ui.splash.SplashScreen
  * - SPLASH: Pantalla inicial que verifica autenticación
  * - LOGIN: Flujo de autenticación con Google
  * - MAIN: Pantalla principal con navegación inferior (Feed + Profile)
+ * - UPLOAD_FLOW: Flujo de grabación/importación y subida de video, a pantalla completa
+ *   y fuera del NavBar (como Reels/TikTok). Se lanza desde el tab "Crear" de MainScreen.
  */
 object Routes {
     const val SPLASH = "splash"
     const val LOGIN = "login"
     const val MAIN = "main"
+    const val UPLOAD_FLOW = "upload_flow"
 }
 
 /**
@@ -213,6 +217,37 @@ fun NavGraph(
                         // la app se cierre en lugar de volver a MAIN
                         popUpTo(0) { inclusive = true }
                     }
+                },
+                onNavigateToUpload = {
+                    navController.navigate(Routes.UPLOAD_FLOW)
+                }
+            )
+        }
+
+        // ═══════════════════════════════════════════════════════════════
+        // UPLOAD FLOW (grabación/importación + revisión + subida)
+        // ═══════════════════════════════════════════════════════════════
+        /**
+         * Flujo de subida de video, a pantalla completa fuera del NavBar (como Reels/TikTok).
+         *
+         * Función:
+         * - Grabar video con CameraX o importarlo desde la galería
+         * - Revisar, titular y confirmar la subida (UploadViewModel)
+         * - Volver a MAIN al terminar (éxito) o al cerrar el flujo manualmente
+         *
+         * Nota: es una única ruta porque UploadState (Idle/Recorded/Uploading/Success/
+         * Error/Cancelled) ya funciona como máquina de estados de la pantalla; no hace
+         * falta un NavHost anidado con sub-rutas para camera/review.
+         *
+         * Navegación desde aquí:
+         * - Fin del flujo (éxito o cierre manual) → MAIN, sin dejar el flujo en el backstack
+         */
+        composable(Routes.UPLOAD_FLOW) {
+            UploadFlowScreen(
+                onFinish = {
+                    // Vuelve a la instancia existente de MAIN (preserva su estado) sin
+                    // dejar UPLOAD_FLOW en el backstack.
+                    navController.popBackStack(Routes.MAIN, inclusive = false)
                 }
             )
         }

@@ -1,0 +1,77 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Valida que una URL sea efectivamente un download URL de Firebase Storage del
+    // bucket real de este proyecto (boomday-85bef.firebasestorage.app, ver
+    // app/google-services.json → storage_bucket), no una URL arbitraria de otro dominio.
+    // Un cliente modificado no puede simplemente apuntar videoUrl/thumbnailUrl a
+    // cualquier host y hacer que el Feed la reproduzca en autoplay.
+    function isValidStorageUrl(url) {
+      return url.matches('^https://firebasestorage\\.googleapis\\.com/v0/b/boomday-85bef\\.firebasestorage\\.app/o/.*$');
+    }
+
+    match /videos/{videoId} {
+      allow read: if request.auth != null;
+
+      allow create: if request.auth != null
+                    && request.auth.uid == request.resource.data.userId
+                    && request.resource.data.views == 0
+                    && request.resource.data.likes == 0
+                    && request.resource.data.comments == 0
+                    && request.resource.data.shares == 0
+                    && request.resource.data.duration is int
+                    && request.resource.data.duration >= 3
+                    && request.resource.data.duration <= 60
+                    && request.resource.data.title.size() <= 100
+                    && request.resource.data.description.size() <= 500
+                    && request.resource.data.hashtags.size() <= 30
+                    && request.resource.data.dayKey is string
+                    && request.resource.data.dayKey.size() == 10
+                    && isValidStorageUrl(request.resource.data.videoUrl)
+                    && (
+                         request.resource.data.thumbnailUrl == ''
+                         || isValidStorageUrl(request.resource.data.thumbnailUrl)
+                       );
+
+      // El dueño solo puede editar los campos de contenido (título/descripción/hashtags);
+      // los contadores (views/likes/comments/shares) quedan fuera de su alcance de escritura
+      // para que no pueda inflar sus propias métricas con un update directo.
+      allow update: if request.auth != null
+                    && request.auth.uid == resource.data.userId
+                    && request.resource.data.diff(resource.data).affectedKeys()
+                         .hasOnly(['title', 'description', 'hashtags', 'updatedAt'])
+                    && request.resource.data.title.size() <= 100
+                    && request.resource.data.description.size() <= 500
+                    && request.resource.data.hashtags.size() <= 30;
+
+      // Cualquier usuario autenticado (no solo el dueño) puede incrementar "views" en
+      // exactamente 1 por request — es lo que ya hace VideoRepository.incrementViews(),
+      // acotado a un único campo para que no sirva como puerta trasera para editar el resto.
+      //
+      // FIX (seguridad): además del incremento de +1, se exige con existsAfter() que el
+      // subdocumento de dedupe videos/{videoId}/views/{uid} exista al terminar la MISMA
+      // transacción/batch que hace este update. VideoRepository.incrementViews() ahora
+      // crea ese subdocumento y hace este update dentro de una única transacción de
+      // Firestore, así que un cliente que intente llamar directo al update de "views" sin
+      // crear el subdocumento de dedupe en la misma operación atómica es rechazado — ya no
+      // puede inflar vistas repitiendo solo la segunda escritura.
+      allow update: if request.auth != null
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['views'])
+                    && request.resource.data.views == resource.data.views + 1
+                    && existsAfter(/databases/$(database)/documents/videos/$(videoId)/views/$(request.auth.uid));
+
+      allow delete: if request.auth != null && request.auth.uid == resource.data.userId;
+
+      match /views/{userId} {
+        allow read: if request.auth != null;
+        allow create: if request.auth != null && request.auth.uid == userId;
+        allow update, delete: if false;
+      }
+    }
+    match /users/{userId} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null && request.auth.uid == userId;
+    }
+  }
+}

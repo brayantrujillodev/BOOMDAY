@@ -5,9 +5,12 @@ import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
 import com.negociodigital.boomday.data.model.Video
+import com.negociodigital.boomday.data.util.currentDayKeyBogota
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.tasks.await
 import timber.log.Timber
 import javax.inject.Inject
@@ -67,16 +70,23 @@ class VideoRepository @Inject constructor(
             }
 
         awaitClose { listener.remove() }
-    }
+    }.flowOn(Dispatchers.IO)
 
     /**
-     * Obtiene los videos más vistos (top videos)
+     * Obtiene los videos más vistos del día calendario actual (zona horaria
+     * America/Bogota), ordenados por vistas descendente.
+     *
+     * FIX: antes esta query combinaba whereGreaterThan("createdAt", yesterday) con
+     * orderBy("views", DESC) — Firestore exige que, si hay un filtro de desigualdad, el
+     * primer orderBy recaiga sobre ESE MISMO campo. El SDK lanzaba IllegalArgumentException
+     * de forma síncrona al construir la Query, dejando el Ranking en Error permanente. Se
+     * reemplaza el filtro de desigualdad por una igualdad sobre `dayKey` (mismo día
+     * calendario), lo que sí es válido combinado con orderBy("views") porque ya no hay
+     * desigualdad involucrada.
      */
     fun getTopVideos(limit: Int = 10): Flow<List<Video>> = callbackFlow {
-        val yesterday = System.currentTimeMillis() - (24 * 60 * 60 * 1000)
-
         val listener = videosCollection
-            .whereGreaterThan("createdAt", yesterday)
+            .whereEqualTo("dayKey", currentDayKeyBogota())
             .orderBy("views", Query.Direction.DESCENDING)
             .limit(limit.toLong())
             .addSnapshotListener { snapshot, error ->
@@ -99,36 +109,43 @@ class VideoRepository @Inject constructor(
             }
 
         awaitClose { listener.remove() }
-    }
+    }.flowOn(Dispatchers.IO)
 
     /**
-     * Incrementa el contador de vistas de un video
-     * Solo cuenta una vista por usuario
+     * Incrementa el contador de vistas de un video. Solo cuenta una vista por usuario.
+     *
+     * FIX (seguridad): antes esto eran dos escrituras SEPARADAS y no atómicas (primero
+     * viewRef.set(...), después el update de "views"), lo que dejaba una ventana para que
+     * un cliente modificado llamara directo al update de "views" sin pasar nunca por la
+     * creación del subdocumento de dedupe, inflando vistas repetidamente. Ahora ambas
+     * escrituras van dentro de una única transacción de Firestore: o se crea el
+     * subdocumento de dedupe Y se incrementa el contador juntos, o no se hace ninguna de
+     * las dos. La regla `views` en firestore.rules exige además, con existsAfter(), que el
+     * subdocumento de dedupe exista al final de esa misma operación atómica — así que ya
+     * no basta con llamar al update aislado, ni siquiera saltándose este repositorio.
      */
     suspend fun incrementViews(videoId: String): Result<Unit> {
         return try {
             val userId = auth.currentUser?.uid
                 ?: return Result.failure(Exception("Usuario no autenticado"))
 
-            val viewRef = videosCollection
-                .document(videoId)
-                .collection("views")
-                .document(userId)
+            val videoRef = videosCollection.document(videoId)
+            val viewRef = videoRef.collection("views").document(userId)
 
-            val viewDoc = viewRef.get().await()
+            firestore.runTransaction { transaction ->
+                val viewDoc = transaction.get(viewRef)
 
-            if (!viewDoc.exists()) {
-                // Registrar la vista del usuario
-                viewRef.set(mapOf("viewedAt" to System.currentTimeMillis())).await()
+                if (!viewDoc.exists()) {
+                    // Registrar la vista del usuario e incrementar el contador en la misma
+                    // transacción: ambas escrituras se aplican atómicamente o ninguna lo hace.
+                    transaction.set(viewRef, mapOf("viewedAt" to System.currentTimeMillis()))
+                    transaction.update(videoRef, "views", FieldValue.increment(1))
+                }
 
-                // Incrementar contador de vistas
-                videosCollection.document(videoId)
-                    .update("views", FieldValue.increment(1))
-                    .await()
+                null
+            }.await()
 
-                Timber.d("VideoRepository: Vista incrementada para video: $videoId")
-            }
-
+            Timber.d("VideoRepository: Vista incrementada para video: $videoId")
             Result.success(Unit)
         } catch (e: Exception) {
             Timber.e(e, "VideoRepository: Error incrementando vistas")

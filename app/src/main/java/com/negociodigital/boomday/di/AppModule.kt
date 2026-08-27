@@ -1,5 +1,6 @@
 package com.negociodigital.boomday.di
 
+import android.content.Context
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ktx.firestore
@@ -10,12 +11,14 @@ import com.negociodigital.boomday.data.repository.AuthRepository
 import com.negociodigital.boomday.data.repository.GoogleAuthRepository
 import com.negociodigital.boomday.data.repository.ProfileRepository
 import com.negociodigital.boomday.data.repository.StorageRepository
+import com.negociodigital.boomday.data.repository.UploadRepository
 import com.negociodigital.boomday.data.repository.UserRepository
 import com.negociodigital.boomday.data.repository.VideoRepository
 import com.negociodigital.boomday.domain.usecase.GoogleSignInUseCase
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
+import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import javax.inject.Singleton
 
@@ -94,6 +97,17 @@ object AppModule {
         auth: FirebaseAuth
     ): StorageRepository {
         return StorageRepository(storage, auth)
+    }
+
+    @Provides
+    @Singleton
+    fun provideUploadRepository(
+        storageRepository: StorageRepository,
+        videoRepository: VideoRepository,
+        auth: FirebaseAuth,
+        @ApplicationContext context: Context
+    ): UploadRepository {
+        return UploadRepository(storageRepository, videoRepository, auth, context)
     }
 
     // ==================== USE CASES ====================

@@ -14,3 +14,9 @@
 .cxx
 local.properties
 .kotlin/
+
+# Firebase CLI local artifacts
+firebase-debug.log
+firestore-debug.log
+ui-debug.log
+.firebase/

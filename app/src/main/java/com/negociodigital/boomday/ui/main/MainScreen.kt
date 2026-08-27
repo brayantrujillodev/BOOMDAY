@@ -21,7 +21,6 @@ import com.negociodigital.boomday.ui.explore.ExploreScreen
 import com.negociodigital.boomday.ui.feed.FeedScreen
 import com.negociodigital.boomday.ui.profile.ProfileScreen
 import com.negociodigital.boomday.ui.ranking.RankingScreen
-import com.negociodigital.boomday.ui.upload.UploadScreen
 
 /**
  * Rutas internas de MainScreen.
@@ -96,10 +95,15 @@ sealed class MainRoute(
  * 3. Mantiene estado al cambiar de pestaña
  *
  * @param onLogoutSuccess Callback cuando el usuario cierra sesión desde Profile
+ * @param onNavigateToUpload Callback cuando el usuario toca el tab "Crear". El flujo de
+ *   grabación/subida vive fuera del NavBar (a pantalla completa, ver Routes.UPLOAD_FLOW
+ *   en NavGraph.kt), así que este tab no navega dentro del NavHost interno: delega al
+ *   NavController de nivel superior.
  */
 @Composable
 fun MainScreen(
-    onLogoutSuccess: () -> Unit
+    onLogoutSuccess: () -> Unit,
+    onNavigateToUpload: () -> Unit
 ) {
     // Controlador de navegación interno (solo para MainScreen)
     val navController = rememberNavController()
@@ -138,15 +142,21 @@ fun MainScreen(
                         label = { Text(screen.title) },
                         selected = isSelected,
                         onClick = {
-                            navController.navigate(screen.route) {
-                                // Navegar a la raíz del grafo
-                                popUpTo(navController.graph.findStartDestination().id) {
-                                    saveState = true
+                            if (screen == MainRoute.Upload) {
+                                // El tab "Crear" no es un destino interno: abre el flujo de
+                                // subida a pantalla completa (nivel superior, fuera del NavBar).
+                                onNavigateToUpload()
+                            } else {
+                                navController.navigate(screen.route) {
+                                    // Navegar a la raíz del grafo
+                                    popUpTo(navController.graph.findStartDestination().id) {
+                                        saveState = true
+                                    }
+                                    // Evitar múltiples copias de la misma pantalla
+                                    launchSingleTop = true
+                                    // Restaurar estado al volver
+                                    restoreState = true
                                 }
-                                // Evitar múltiples copias de la misma pantalla
-                                launchSingleTop = true
-                                // Restaurar estado al volver
-                                restoreState = true
                             }
                         }
                     )
@@ -175,9 +185,10 @@ fun MainScreen(
             }
 
             // ➕ UPLOAD
-            composable(MainRoute.Upload.route) {
-                UploadScreen()
-            }
+            // Nota: no se registra composable(MainRoute.Upload.route) aquí a propósito.
+            // El tab "Crear" nunca navega a esta ruta interna (ver onClick arriba):
+            // intercepta el click y delega a onNavigateToUpload() para abrir el flujo de
+            // subida como ruta de nivel superior (Routes.UPLOAD_FLOW en NavGraph.kt).
 
             // 🔍 EXPLORE
             composable(MainRoute.Explore.route) {

@@ -1,3 +1,93 @@
 <resources>
     <string name="app_name">BoomDay</string>
+
+    <!-- Upload - Común -->
+    <string name="upload_close_cd">Cerrar</string>
+
+    <!-- Upload - Permisos -->
+    <string name="upload_permission_title">Permisos necesarios</string>
+    <string name="upload_permission_explanation">BoomDay necesita acceso a la cámara y al micrófono para grabar tus videos.</string>
+    <string name="upload_permission_request_button">Solicitar permisos</string>
+    <string name="upload_permission_import_gallery_button">Importar de galería</string>
+    <string name="upload_permission_rationale_title">Necesitamos estos permisos</string>
+    <string name="upload_permission_rationale_message">Sin acceso a la cámara y al micrófono no podemos grabar video con audio. Puedes intentarlo de nuevo o importar un video ya grabado desde tu galería.</string>
+    <string name="upload_permission_denied_title">Permisos bloqueados</string>
+    <string name="upload_permission_denied_message">Denegaste permanentemente el acceso a la cámara o al micrófono. Actívalos desde los ajustes de la aplicación para poder grabar, o importa un video desde la galería.</string>
+    <string name="upload_permission_open_settings_button">Ir a Ajustes</string>
+
+    <!-- Upload - Cámara -->
+    <string name="upload_camera_record_start_cd">Iniciar grabación</string>
+    <string name="upload_camera_record_stop_cd">Detener grabación</string>
+    <string name="upload_camera_timer_format">%1$d s / %2$d s</string>
+    <string name="upload_camera_switch_gallery_button">Importar de galería</string>
+    <string name="upload_camera_preview_cd">Vista previa de la cámara</string>
+
+    <!-- Upload - Galería -->
+    <string name="upload_gallery_duration_error">El video debe durar entre %1$d y %2$d segundos (actual: %3$d s)</string>
+    <string name="upload_gallery_read_error">No se pudo leer la duración del video seleccionado</string>
+
+    <!-- Upload - Revisión -->
+    <string name="upload_review_title">Revisar video</string>
+    <string name="upload_review_player_cd">Reproductor de video</string>
+    <string name="upload_review_duration_label">Duración: %1$d s</string>
+    <string name="upload_review_too_short_warning">El video es muy corto. Debe durar al menos %1$d segundos.</string>
+    <string name="upload_review_too_long_warning">El video es muy largo. No puede durar más de %1$d segundos.</string>
+    <string name="upload_review_char_counter">%1$d/%2$d</string>
+    <string name="upload_review_title_label">Título</string>
+    <string name="upload_review_title_placeholder">Ponle un título a tu video</string>
+    <string name="upload_review_description_label">Descripción</string>
+    <string name="upload_review_description_placeholder">Cuenta algo sobre tu video (opcional)</string>
+    <string name="upload_review_hashtags_label">Hashtags</string>
+    <string name="upload_review_hashtags_placeholder">boomday, viral, negocio</string>
+    <string name="upload_review_hashtags_helper">Sepáralos con comas o espacios</string>
+    <string name="upload_review_discard_button">Descartar</string>
+    <string name="upload_review_submit_button">Subir</string>
+
+    <!-- Upload - Subida -->
+    <string name="upload_uploading_title">Subiendo video…</string>
+    <string name="upload_uploading_progress_label">%1$d%%</string>
+    <string name="upload_uploading_cancel_button">Cancelar</string>
+
+    <!-- Upload - Éxito -->
+    <string name="upload_success_title">¡Video publicado!</string>
+    <string name="upload_success_message">Tu video ya está disponible en el feed.</string>
+
+    <!-- Upload - Error -->
+    <string name="upload_error_title">No se pudo subir el video</string>
+    <string name="upload_error_retry_button">Reintentar</string>
+    <string name="upload_error_discard_button">Descartar</string>
+
+    <!-- Upload - Cancelado -->
+    <string name="upload_cancelled_title">Subida cancelada</string>
+    <string name="upload_cancelled_message">Cancelaste la subida de tu video.</string>
+    <string name="upload_cancelled_retry_button">Reintentar</string>
+    <string name="upload_cancelled_discard_button">Descartar</string>
+
+    <!-- Feed -->
+    <string name="feed_refreshing_label">Actualizando…</string>
+    <string name="feed_loading_cd">Cargando feed</string>
+    <string name="feed_player_cd">Reproductor de video</string>
+    <string name="feed_thumbnail_cd">Miniatura del video</string>
+    <string name="feed_avatar_cd">Perfil de %1$s</string>
+    <string name="feed_likes_cd">Me gusta: %1$s</string>
+    <string name="feed_comments_cd">Comentarios: %1$s</string>
+    <string name="feed_shares_cd">Compartir: %1$s</string>
+    <string name="feed_empty_title">Sé el primero en publicar hoy en Neiva</string>
+    <string name="feed_empty_subtitle">El feed se reinicia cada día. Sube tu video y sé la primera cara que todos vean hoy.</string>
+    <string name="feed_empty_refresh_button">Actualizar</string>
+    <string name="feed_error_title">No pudimos cargar el feed</string>
+    <string name="feed_error_retry_button">Reintentar</string>
+
+    <!-- Ranking -->
+    <string name="ranking_title">Ranking</string>
+    <string name="ranking_location_today">Neiva · Hoy</string>
+    <string name="ranking_date_pattern">d \'de\' MMMM</string>
+    <string name="ranking_position_cd">Puesto %1$d</string>
+    <string name="ranking_avatar_cd">Foto de perfil de %1$s</string>
+    <string name="ranking_views_format">%1$s vistas</string>
+    <string name="ranking_loading_cd">Cargando ranking</string>
+    <string name="ranking_empty_title">El ranking de hoy aún no tiene suficientes vistas</string>
+    <string name="ranking_empty_subtitle">Sé de los primeros en ver y compartir videos hoy en Neiva.</string>
+    <string name="ranking_error_title">No pudimos cargar el ranking</string>
+    <string name="ranking_error_subtitle">Vuelve a intentarlo en un momento.</string>
 </resources>

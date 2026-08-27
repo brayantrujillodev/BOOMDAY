@@ -50,5 +50,13 @@ data class Video(
     val createdAt: Long = System.currentTimeMillis(),
 
     @PropertyName("updatedAt")
-    val updatedAt: Timestamp = Timestamp.now()
+    val updatedAt: Timestamp = Timestamp.now(),
+
+    // Día calendario (zona horaria America/Bogota) en que se publicó el video, formato ISO
+    // "yyyy-MM-dd". Calculado siempre con currentDayKeyBogota() (data/util/DateUtils.kt) —
+    // es la clave de igualdad que permite a VideoRepository.getTopVideos() combinar
+    // whereEqualTo + orderBy(views) sin chocar con la restricción de Firestore sobre
+    // filtros de desigualdad + orderBy en campos distintos.
+    @PropertyName("dayKey")
+    val dayKey: String = ""
 )
