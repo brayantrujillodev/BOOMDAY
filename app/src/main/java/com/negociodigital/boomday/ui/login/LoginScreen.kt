@@ -16,9 +16,6 @@ fun LoginScreen(
     isLoading: Boolean = false,
     errorMessage: String? = null
 ) {
-    // ✅ AGREGA ESTE LOG AQUÍ
-    Log.d("LoginScreen", "🟡 LoginScreen ESTÁ SIENDO RENDERIZADO")
-
     Surface(
         modifier = Modifier.fillMaxSize(),
         color = MaterialTheme.colorScheme.background
@@ -46,7 +43,7 @@ fun LoginScreen(
             )
 
             Text(
-                text = "Conecta con oportunidades",
+                text = "Tu video de hoy. El ranking de Neiva.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 8.dp)

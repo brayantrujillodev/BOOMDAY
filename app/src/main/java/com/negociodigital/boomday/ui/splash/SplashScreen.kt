@@ -230,7 +230,7 @@ fun SplashScreen(
              * Color gris claro para jerarquía visual
              */
             Text(
-                text = "Conecta con oportunidades",
+                text = "Tu video de hoy. El ranking de Neiva.",
                 fontSize = subtitleSize,
                 fontWeight = FontWeight.Normal,
                 color = Color(0xFFCBD5E1), // slate-300
