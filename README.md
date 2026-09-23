@@ -73,9 +73,9 @@ app/src/main/java/com/negociodigital/boomday/
 | Feed (VerticalPager, un solo ExoPlayer reutilizado, conteo de vistas) | ✅ |
 | Ranking diario (Top por vistas, diseñado para screenshot) | ✅ |
 | Explore (buscar, categorías, sugeridos) | ❌ mock, sin datos reales |
-| Expiración real de 24h (borrado de Storage/Firestore) | ❌ solo se filtra en lectura, los archivos nunca se borran |
+| Expiración real de 24h (borrado de Storage/Firestore) | 🚧 Cloud Function implementada (`functions/`), falta desplegar (ver ROADMAP) |
 | Reporte y bloqueo de usuarios | 🚧 implementado en código, falta desplegar reglas de Firestore (ver ROADMAP) |
-| Validación server-side de duración/content-type de video | 🚧 parcial (reglas de Storage validan tamaño/tipo declarado; falta Cloud Function) |
+| Validación server-side de duración/content-type de video | ❌ pendiente (requiere una función `onObjectFinalized` separada de la de expiración) |
 | Reglas de Firestore/Storage | ✅ escritas y con validación de ownership, límites y dedupe atómico |
 | CI (build automático) | ✅ este mismo cambio |
 | Tests automatizados | ❌ no hay |
@@ -108,6 +108,17 @@ firebase deploy --only firestore:rules,firestore:indexes,storage
 ```
 
 El índice compuesto de Firestore tarda varios minutos en construirse — esperá a que aparezca "Enabled" en Firebase Console → Firestore → Índices antes de probar el Ranking.
+
+### Cloud Functions (expiración de 24h)
+
+`functions/` contiene `cleanupExpiredVideos`, la función programada que borra videos vencidos. Necesita el plan **Blaze** habilitado en el proyecto (las funciones programadas usan Cloud Scheduler, no disponible en el plan gratuito Spark):
+
+```bash
+cd functions
+npm install
+cd ..
+firebase deploy --only functions
+```
 
 ### Desarrollar sin gastar cuota
 

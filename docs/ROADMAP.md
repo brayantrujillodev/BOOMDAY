@@ -2,11 +2,21 @@
 
 Orden de prioridad real, con el motivo de cada punto — no es una lista de deseos, es lo que falta para que el producto sea publicable y sostenible.
 
-## 1. Cloud Function de expiración de 24h — crítico
+## 1. ~~Cloud Function de expiración de 24h~~ — implementada, falta desplegar
 
 Hoy `getTodayVideos()`/`getTopVideos()` **filtran en lectura** (por `createdAt`/`dayKey`), pero los blobs en Storage y los documentos en Firestore de videos vencidos **nunca se borran**. El video deja de aparecer en la app, pero se sigue pagando almacenamiento por él indefinidamente. Sin esto, el costo de Storage crece sin límite mientras la app tenga uso, sin ningún tope.
 
-Alcance sugerido: una Cloud Function programada (`onSchedule`, cada hora o cada día) que borre documentos de `videos/` con `createdAt` de más de 24h y su blob correspondiente en Storage. De paso, esta misma función es el lugar natural para resolver la deuda pendiente de **validación server-side de duración y content-type real** (hoy solo se valida `content-type` declarado por el cliente y tamaño en `storage.rules` — ninguna regla puede inspeccionar el contenido real del archivo; una Cloud Function con `ffprobe` o similar sí puede, y podría rechazar/eliminar archivos que no cumplan al vuelo).
+**Implementado**: `functions/src/index.ts` — `cleanupExpiredVideos`, una Cloud Function programada (`onSchedule`, cada 60 minutos, zona horaria `America/Bogota`) que busca videos con `createdAt` de más de 24h, borra el blob de video y el thumbnail en Storage (parseando el path desde la download URL guardada), y borra el documento en Firestore junto con su subcolección `views` (`recursiveDelete`).
+
+**Pendiente, acción manual** — esto necesita el plan **Blaze** (pago por uso) habilitado en el proyecto de Firebase, porque las funciones programadas usan Cloud Scheduler + Pub/Sub, que no están disponibles en el plan gratuito Spark:
+```bash
+npm install -g firebase-tools   # si no lo tienes
+firebase login
+cd functions && npm install && cd ..
+firebase deploy --only functions
+```
+
+Queda pendiente, por separado, la **validación server-side de duración y content-type real** (hoy solo se valida `content-type` declarado por el cliente y tamaño en `storage.rules` — ninguna regla puede inspeccionar el contenido real del archivo). No se implementó en esta pasada: requiere `ffprobe` o similar corriendo en una función activada por subida (`onObjectFinalized`), es una pieza separada de la de expiración programada.
 
 ## 2. ~~Reporte y bloqueo de usuarios~~ — implementado, falta desplegar reglas
 
