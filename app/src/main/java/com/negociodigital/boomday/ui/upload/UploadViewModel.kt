@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import timber.log.Timber
+import java.io.File
 import javax.inject.Inject
 
 @HiltViewModel
@@ -70,7 +71,10 @@ class UploadViewModel @Inject constructor(
                 _uploadState.value = when (status) {
                     is UploadStatus.Progress -> UploadState.Uploading(status.percent)
                     // En la emisión final del flow, downloadUrl contiene el videoId de Firestore (ver UploadRepository.uploadVideoComplete)
-                    is UploadStatus.Success -> UploadState.Success(videoId = status.downloadUrl)
+                    is UploadStatus.Success -> {
+                        deleteCachedRecordingIfOwned(current.uri)
+                        UploadState.Success(videoId = status.downloadUrl)
+                    }
                     is UploadStatus.Error -> UploadState.Error(
                         message = status.throwable.message ?: "Error desconocido al subir el video"
                     )
@@ -96,5 +100,18 @@ class UploadViewModel @Inject constructor(
      */
     fun resetState() {
         _uploadState.value = UploadState.Idle
+    }
+
+    /**
+     * Borra el archivo temporal de la grabación del cache tras una subida exitosa.
+     * Solo aplica a videos grabados con CameraX (uri con scheme "file", escritos en
+     * cacheDir por CameraCaptureScreen); un video importado de galería usa un content://
+     * uri que no nos pertenece y no debe borrarse.
+     */
+    private fun deleteCachedRecordingIfOwned(uri: Uri) {
+        if (uri.scheme != "file") return
+        val path = uri.path ?: return
+        val deleted = File(path).delete()
+        Timber.d("UploadViewModel: Limpieza de cache de grabación (deleted=$deleted): $path")
     }
 }

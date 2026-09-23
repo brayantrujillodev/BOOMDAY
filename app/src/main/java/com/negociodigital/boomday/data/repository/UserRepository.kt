@@ -112,7 +112,7 @@ class UserRepository @Inject constructor(
                 val userData = hashMapOf(
                     "uid" to uid,
                     "email" to email,
-                    "displayName" to displayName,
+                    "name" to displayName,
                     "avatar" to photoUrl,
                     "type" to "free", // Tipo por defecto
                     "createdAt" to Timestamp.now(),

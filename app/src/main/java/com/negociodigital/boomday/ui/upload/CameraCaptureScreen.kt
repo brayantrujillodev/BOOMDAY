@@ -67,6 +67,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.negociodigital.boomday.R
 import java.io.File
@@ -98,6 +100,7 @@ internal fun CameraGateScreen(
 ) {
     val context = LocalContext.current
     val activity = context as? Activity
+    val lifecycleOwner = LocalLifecycleOwner.current
 
     var cameraGranted by remember {
         mutableStateOf(
@@ -115,6 +118,22 @@ internal fun CameraGateScreen(
     var permanentlyDenied by remember { mutableStateOf(false) }
     var galleryError by remember { mutableStateOf<String?>(null) }
     var isValidatingGallerySelection by remember { mutableStateOf(false) }
+
+    // Re-chequea permisos al volver a primer plano: si el usuario los revocó desde Ajustes
+    // mientras la app estaba en background, el estado local (leído solo una vez al entrar
+    // a la pantalla) quedaría desactualizado y seguiría mostrando la cámara.
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                cameraGranted = ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) ==
+                    PackageManager.PERMISSION_GRANTED
+                audioGranted = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==
+                    PackageManager.PERMISSION_GRANTED
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
 
     val durationErrorTemplate = stringResource(R.string.upload_gallery_duration_error)
     val readErrorMessage = stringResource(R.string.upload_gallery_read_error)

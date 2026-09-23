@@ -7,6 +7,7 @@ import com.google.android.gms.tasks.OnSuccessListener
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.storage.FirebaseStorage
 import com.google.firebase.storage.OnProgressListener
+import com.google.firebase.storage.StorageException
 import com.google.firebase.storage.UploadTask
 import com.negociodigital.boomday.data.model.UploadStatus
 import kotlinx.coroutines.channels.awaitClose
@@ -101,7 +102,13 @@ class StorageRepository @Inject constructor(
         }
 
         val failureListener = OnFailureListener { exception ->
-            Timber.e(exception, "StorageRepository: Error subiendo video")
+            // Una cancelación explícita (ver awaitClose) llega aquí como StorageException con
+            // ERROR_CANCELED: es un flujo normal, no un error real, así que no se loguea como tal.
+            if (exception is StorageException && exception.errorCode == StorageException.ERROR_CANCELED) {
+                Timber.d("StorageRepository: Subida de video cancelada")
+            } else {
+                Timber.e(exception, "StorageRepository: Error subiendo video")
+            }
             trySend(UploadStatus.Error(exception))
             close(exception)
         }

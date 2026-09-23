@@ -39,11 +39,6 @@ Ya identificada en revisiones de código anteriores. Lo ya resuelto se marca exp
 
 **Pendiente:**
 - Validación server-side real de content-type y duración de video (depende de la Cloud Function del punto 1).
-- Permisos de cámara sin re-chequeo si se revocan mientras la app está en segundo plano.
-- `StorageRepository` atrapa `CancellationException` como error genérico en un log (funcionalmente inofensivo, pero ensucia logs con "errores" que en realidad son cancelaciones normales).
-- Archivo de video grabado no se borra del cache de la app tras subir exitosamente.
-- Falta `launchSingleTop` en la navegación al tab "Crear" (doble tap podría apilar la ruta de upload dos veces; impacto bajo, se limpia solo al salir del flujo).
-- `UserRepository.createOrUpdateUser` escribe el campo `displayName`, pero el modelo `User` define el campo como `name` — inconsistencia detectada durante una revisión de reglas de Firestore, no confirmada como bug en producción, pendiente de verificar.
 
 **Ya resuelto (no reabrir sin evidencia nueva):**
 - ~~Query inválida de `getTopVideos()`~~ — corregido con `dayKey` (ver `docs/ARCHITECTURE.md`).
@@ -52,3 +47,8 @@ Ya identificada en revisiones de código anteriores. Lo ya resuelto se marca exp
 - ~~`videoUrl`/`thumbnailUrl` sin validar dominio en las reglas~~ — corregido.
 - ~~`notifiedViewIds` con riesgo de fragilidad de concurrencia~~ — corregido, `Set` sincronizado explícitamente.
 - ~~`FeedItem.kt` con código muerto~~ — eliminado, `formatCount` movido a `ui/util/NumberFormatUtils.kt`.
+- ~~Permisos de cámara sin re-chequeo si se revocan en segundo plano~~ — corregido, `CameraGateScreen` re-chequea permisos en `ON_RESUME` con un `LifecycleEventObserver`.
+- ~~`StorageRepository` logueaba cancelación de subida como error genérico~~ — corregido, se distingue `StorageException.ERROR_CANCELED` y se loguea como `Timber.d`, no `Timber.e`.
+- ~~Archivo de video grabado no se borraba del cache tras subir exitosamente~~ — corregido, `UploadViewModel` borra el archivo local (scheme `file`) al recibir `UploadStatus.Success`; los videos importados de galería (`content://`) no se tocan.
+- ~~Faltaba `launchSingleTop` en la navegación al tab "Crear"~~ — corregido en `NavGraph.kt`.
+- ~~`UserRepository.createOrUpdateUser` escribía `displayName` pero el modelo `User` define `name`~~ — confirmado como bug real (el nombre se perdía al releer el usuario desde Firestore) y corregido.

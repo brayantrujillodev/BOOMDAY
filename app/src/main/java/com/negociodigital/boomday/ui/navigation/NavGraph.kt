@@ -219,7 +219,10 @@ fun NavGraph(
                     }
                 },
                 onNavigateToUpload = {
-                    navController.navigate(Routes.UPLOAD_FLOW)
+                    navController.navigate(Routes.UPLOAD_FLOW) {
+                        // Evita apilar UPLOAD_FLOW dos veces si el usuario hace doble tap en "Crear"
+                        launchSingleTop = true
+                    }
                 }
             )
         }
