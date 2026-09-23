@@ -8,11 +8,16 @@ Hoy `getTodayVideos()`/`getTopVideos()` **filtran en lectura** (por `createdAt`/
 
 Alcance sugerido: una Cloud Function programada (`onSchedule`, cada hora o cada día) que borre documentos de `videos/` con `createdAt` de más de 24h y su blob correspondiente en Storage. De paso, esta misma función es el lugar natural para resolver la deuda pendiente de **validación server-side de duración y content-type real** (hoy solo se valida `content-type` declarado por el cliente y tamaño en `storage.rules` — ninguna regla puede inspeccionar el contenido real del archivo; una Cloud Function con `ffprobe` o similar sí puede, y podría rechazar/eliminar archivos que no cumplan al vuelo).
 
-## 2. Reporte y bloqueo de usuarios — requisito de Google Play
+## 2. ~~Reporte y bloqueo de usuarios~~ — implementado, falta desplegar reglas
 
 La app pasó de "solo lectura de perfil" a generar contenido público real (UGC) visible por otros usuarios. La política de Contenido Generado por el Usuario de Google Play exige, antes de publicar una feature con UGC visible: mecanismo in-app para reportar contenido/usuarios, capacidad de bloquear usuarios, y compromiso de remover contenido reportado en un plazo razonable. No es opcional para pasar la revisión de Play — es un bloqueante de publicación, no solo una buena práctica.
 
-Alcance mínimo: colección `reports/{reportId}` en Firestore, campo `blockedUsers: List<String>` en `User`, filtrar videos de usuarios bloqueados en las queries del feed, botón de "reportar" en la pantalla de reproducción.
+**Implementado**: colección `reports/{reportId}` en Firestore (creable solo por el reportante, solo lectura/gestión administrativa), campo `blockedUsers: List<String>` en `User`, `UserRepository.blockUser/unblockUser/getBlockedUsers`, `ReportRepository.submitReport`, filtro reactivo de usuarios bloqueados en `FeedViewModel` (inmediato) y `RankingViewModel` (en la carga), menú de "más opciones" con reportar/bloquear en `FeedScreen`.
+
+**Pendiente, acción manual**: las reglas nuevas de `firestore.rules` (colección `reports`) están en el repo pero **no desplegadas** al proyecto de Firebase real. Sin este paso, `ReportRepository.submitReport` fallará en producción con permiso denegado. Correr:
+```bash
+firebase deploy --only firestore:rules
+```
 
 ## 3. Nombre del paquete — corrección respecto a la nota original
 

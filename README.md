@@ -74,7 +74,7 @@ app/src/main/java/com/negociodigital/boomday/
 | Ranking diario (Top por vistas, diseñado para screenshot) | ✅ |
 | Explore (buscar, categorías, sugeridos) | ❌ mock, sin datos reales |
 | Expiración real de 24h (borrado de Storage/Firestore) | ❌ solo se filtra en lectura, los archivos nunca se borran |
-| Reporte y bloqueo de usuarios | ❌ no existe |
+| Reporte y bloqueo de usuarios | 🚧 implementado en código, falta desplegar reglas de Firestore (ver ROADMAP) |
 | Validación server-side de duración/content-type de video | 🚧 parcial (reglas de Storage validan tamaño/tipo declarado; falta Cloud Function) |
 | Reglas de Firestore/Storage | ✅ escritas y con validación de ownership, límites y dedupe atómico |
 | CI (build automático) | ✅ este mismo cambio |

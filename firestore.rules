@@ -73,5 +73,21 @@ service cloud.firestore {
       allow read: if request.auth != null;
       allow write: if request.auth != null && request.auth.uid == userId;
     }
+
+    match /reports/{reportId} {
+      // Cualquier usuario autenticado puede crear un reporte, siempre como sí mismo
+      // (reporterId debe ser su propio uid, no puede reportar "en nombre de" otro).
+      allow create: if request.auth != null
+                    && request.auth.uid == request.resource.data.reporterId
+                    && request.resource.data.reportedUserId is string
+                    && request.resource.data.reportedUserId.size() > 0
+                    && request.resource.data.reason is string
+                    && request.resource.data.reason.size() > 0
+                    && request.resource.data.reason.size() <= 300;
+
+      // Los reportes se revisan de forma administrativa (consola/backend), nunca desde el
+      // cliente: ni el reportante ni nadie más puede leer, editar o borrar reportes.
+      allow read, update, delete: if false;
+    }
   }
 }

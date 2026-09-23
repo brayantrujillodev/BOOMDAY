@@ -1,5 +1,6 @@
 package com.negociodigital.boomday.ui.feed
 
+import androidx.annotation.StringRes
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -7,6 +8,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -15,23 +17,34 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.pager.VerticalPager
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.RadioButton
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -84,34 +97,97 @@ fun FeedScreen(
     viewModel: FeedViewModel = hiltViewModel()
 ) {
     val feedState by viewModel.feedState.collectAsState()
+    val actionMessageRes by viewModel.actionMessage.collectAsState()
+    val actionMessage = actionMessageRes?.let { stringResource(it) }
 
-    Box(modifier = Modifier.fillMaxSize()) {
-        when (val state = feedState) {
-            FeedState.Loading -> FeedLoadingState()
+    val snackbarHostState = remember { SnackbarHostState() }
 
-            is FeedState.Success -> FeedPagerContent(
-                videos = state.videos,
-                isRefreshing = false,
-                onVideoViewed = viewModel::onVideoViewed,
-                onProfileClick = onProfileClick,
-                onCommentsClick = onCommentsClick,
-                onShareClick = onShareClick
+    // Muestra el mensaje una sola vez y lo limpia de inmediato en el ViewModel para que no
+    // se repita si la pantalla se recompone (p.ej. al girar el dispositivo).
+    LaunchedEffect(actionMessage) {
+        actionMessage?.let { message ->
+            snackbarHostState.showSnackbar(message)
+            viewModel.clearActionMessage()
+        }
+    }
+
+    // Video sobre el que se abrió cada diálogo. Solo uno puede estar activo a la vez, así
+    // que null cierra el diálogo correspondiente.
+    var moreOptionsVideo by remember { mutableStateOf<Video?>(null) }
+    var reportVideoTarget by remember { mutableStateOf<Video?>(null) }
+    var blockVideoTarget by remember { mutableStateOf<Video?>(null) }
+
+    Scaffold(
+        modifier = Modifier.fillMaxSize(),
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
+        snackbarHost = { SnackbarHost(snackbarHostState) }
+    ) { innerPadding ->
+        Box(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
+            when (val state = feedState) {
+                FeedState.Loading -> FeedLoadingState()
+
+                is FeedState.Success -> FeedPagerContent(
+                    videos = state.videos,
+                    isRefreshing = false,
+                    onVideoViewed = viewModel::onVideoViewed,
+                    onProfileClick = onProfileClick,
+                    onCommentsClick = onCommentsClick,
+                    onShareClick = onShareClick,
+                    onMoreOptionsClick = { moreOptionsVideo = it }
+                )
+
+                is FeedState.Refreshing -> FeedPagerContent(
+                    videos = state.videos,
+                    isRefreshing = true,
+                    onVideoViewed = viewModel::onVideoViewed,
+                    onProfileClick = onProfileClick,
+                    onCommentsClick = onCommentsClick,
+                    onShareClick = onShareClick,
+                    onMoreOptionsClick = { moreOptionsVideo = it }
+                )
+
+                FeedState.Empty -> FeedEmptyState(onRefresh = viewModel::refreshFeed)
+
+                is FeedState.Error -> FeedErrorState(
+                    message = state.message,
+                    onRetry = viewModel::refreshFeed
+                )
+            }
+        }
+
+        moreOptionsVideo?.let { video ->
+            FeedMoreOptionsDialog(
+                userName = video.userName,
+                onDismiss = { moreOptionsVideo = null },
+                onReportClick = {
+                    moreOptionsVideo = null
+                    reportVideoTarget = video
+                },
+                onBlockClick = {
+                    moreOptionsVideo = null
+                    blockVideoTarget = video
+                }
             )
+        }
 
-            is FeedState.Refreshing -> FeedPagerContent(
-                videos = state.videos,
-                isRefreshing = true,
-                onVideoViewed = viewModel::onVideoViewed,
-                onProfileClick = onProfileClick,
-                onCommentsClick = onCommentsClick,
-                onShareClick = onShareClick
+        reportVideoTarget?.let { video ->
+            FeedReportDialog(
+                onDismiss = { reportVideoTarget = null },
+                onSubmit = { reason ->
+                    viewModel.reportVideo(video.videoId, video.userId, reason)
+                    reportVideoTarget = null
+                }
             )
+        }
 
-            FeedState.Empty -> FeedEmptyState(onRefresh = viewModel::refreshFeed)
-
-            is FeedState.Error -> FeedErrorState(
-                message = state.message,
-                onRetry = viewModel::refreshFeed
+        blockVideoTarget?.let { video ->
+            FeedBlockDialog(
+                userName = video.userName,
+                onDismiss = { blockVideoTarget = null },
+                onConfirm = {
+                    viewModel.blockUser(video.userId)
+                    blockVideoTarget = null
+                }
             )
         }
     }
@@ -124,7 +200,8 @@ private fun FeedPagerContent(
     onVideoViewed: (String) -> Unit,
     onProfileClick: () -> Unit,
     onCommentsClick: (String) -> Unit,
-    onShareClick: (String) -> Unit
+    onShareClick: (String) -> Unit,
+    onMoreOptionsClick: (Video) -> Unit
 ) {
     val context = LocalContext.current
 
@@ -222,7 +299,8 @@ private fun FeedPagerContent(
                 player = player,
                 onProfileClick = onProfileClick,
                 onCommentsClick = { onCommentsClick(video.videoId) },
-                onShareClick = { onShareClick(video.videoId) }
+                onShareClick = { onShareClick(video.videoId) },
+                onMoreOptionsClick = { onMoreOptionsClick(video) }
             )
         }
 
@@ -239,7 +317,8 @@ private fun FeedPageItem(
     player: ExoPlayer,
     onProfileClick: () -> Unit,
     onCommentsClick: () -> Unit,
-    onShareClick: () -> Unit
+    onShareClick: () -> Unit,
+    onMoreOptionsClick: () -> Unit
 ) {
     val playerCd = stringResource(R.string.feed_player_cd)
 
@@ -348,6 +427,11 @@ private fun FeedPageItem(
                     contentDescription = stringResource(R.string.feed_shares_cd, formatCount(video.shares)),
                     onClick = onShareClick
                 )
+                FeedIconOnlyActionButton(
+                    icon = Icons.Filled.MoreVert,
+                    contentDescription = stringResource(R.string.feed_more_options_cd),
+                    onClick = onMoreOptionsClick
+                )
             }
         }
     }
@@ -378,6 +462,26 @@ private fun FeedActionButton(
             fontWeight = FontWeight.SemiBold
         )
     }
+}
+
+/**
+ * Igual que [FeedActionButton] pero sin contador debajo: usado para "más opciones", que no
+ * tiene una métrica asociada.
+ */
+@Composable
+private fun FeedIconOnlyActionButton(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    contentDescription: String,
+    onClick: () -> Unit
+) {
+    Icon(
+        imageVector = icon,
+        contentDescription = contentDescription,
+        tint = Color.White,
+        modifier = Modifier
+            .size(30.dp)
+            .clickable(onClick = onClick)
+    )
 }
 
 @Composable
@@ -551,4 +655,125 @@ private fun FeedErrorState(message: String, onRetry: () -> Unit) {
             }
         }
     }
+}
+
+@Composable
+private fun FeedMoreOptionsDialog(
+    userName: String,
+    onDismiss: () -> Unit,
+    onReportClick: () -> Unit,
+    onBlockClick: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.feed_more_options_title)) },
+        text = {
+            Column {
+                Text(
+                    text = stringResource(R.string.feed_more_options_report),
+                    style = MaterialTheme.typography.bodyLarge,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable(onClick = onReportClick)
+                        .padding(vertical = 12.dp)
+                )
+                Text(
+                    text = stringResource(R.string.feed_more_options_block, userName),
+                    style = MaterialTheme.typography.bodyLarge,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable(onClick = onBlockClick)
+                        .padding(vertical = 12.dp)
+                )
+            }
+        },
+        confirmButton = {},
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.feed_more_options_cancel))
+            }
+        }
+    )
+}
+
+private data class ReportReason(val id: String, @StringRes val labelRes: Int)
+
+private val reportReasons = listOf(
+    ReportReason("inappropriate", R.string.feed_report_reason_inappropriate),
+    ReportReason("spam", R.string.feed_report_reason_spam),
+    ReportReason("harassment", R.string.feed_report_reason_harassment),
+    ReportReason("other", R.string.feed_report_reason_other)
+)
+
+@Composable
+private fun FeedReportDialog(
+    onDismiss: () -> Unit,
+    onSubmit: (String) -> Unit
+) {
+    var selectedReason by rememberSaveable { mutableStateOf(reportReasons.first().id) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.feed_report_title)) },
+        text = {
+            Column {
+                reportReasons.forEach { reason ->
+                    val reasonLabel = stringResource(reason.labelRes)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .selectable(
+                                selected = selectedReason == reason.id,
+                                onClick = { selectedReason = reason.id }
+                            )
+                            .padding(vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(
+                            selected = selectedReason == reason.id,
+                            onClick = { selectedReason = reason.id }
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(text = reasonLabel, style = MaterialTheme.typography.bodyMedium)
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            // Se envía el id estable (p.ej. "inappropriate"), no el texto ya traducido: así
+            // el campo `reason` en Firestore es consistente sin importar el idioma del
+            // dispositivo que reporta, y se puede filtrar/agrupar en revisión administrativa.
+            TextButton(onClick = { onSubmit(selectedReason) }) {
+                Text(stringResource(R.string.feed_report_submit_button))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.feed_report_cancel_button))
+            }
+        }
+    )
+}
+
+@Composable
+private fun FeedBlockDialog(
+    userName: String,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.feed_block_title, userName)) },
+        text = { Text(stringResource(R.string.feed_block_message)) },
+        confirmButton = {
+            TextButton(onClick = onConfirm) {
+                Text(stringResource(R.string.feed_block_confirm_button))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.feed_block_cancel_button))
+            }
+        }
+    )
 }

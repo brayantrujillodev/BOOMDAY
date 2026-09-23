@@ -1,6 +1,7 @@
 package com.negociodigital.boomday.data.repository
 
 import com.google.firebase.Timestamp
+import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.negociodigital.boomday.data.model.User
 import kotlinx.coroutines.tasks.await
@@ -129,5 +130,44 @@ class UserRepository @Inject constructor(
             // Propagamos el error para que GoogleAuthRepository lo maneje
             throw e
         }
+    }
+
+    /**
+     * Bloquea a otro usuario: sus videos dejan de aparecer en Feed/Ranking para quien bloquea.
+     * @param currentUid UID del usuario que bloquea (siempre el usuario autenticado)
+     * @param blockedUid UID del usuario a bloquear
+     */
+    suspend fun blockUser(currentUid: String, blockedUid: String): Result<Unit> {
+        return try {
+            firestore.collection(USERS_COLLECTION)
+                .document(currentUid)
+                .update("blockedUsers", FieldValue.arrayUnion(blockedUid))
+                .await()
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Revierte [blockUser].
+     */
+    suspend fun unblockUser(currentUid: String, blockedUid: String): Result<Unit> {
+        return try {
+            firestore.collection(USERS_COLLECTION)
+                .document(currentUid)
+                .update("blockedUsers", FieldValue.arrayRemove(blockedUid))
+                .await()
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * @return el set de UIDs bloqueados por [uid], o vacío si no existe el usuario o hay error.
+     */
+    suspend fun getBlockedUsers(uid: String): Set<String> {
+        return getUser(uid)?.blockedUsers?.toSet() ?: emptySet()
     }
 }

@@ -19,7 +19,10 @@ data class User(
     val type: String = "user", // "user" | "guest"
 
     @PropertyName("createdAt")
-    val createdAt: Long = System.currentTimeMillis()
+    val createdAt: Long = System.currentTimeMillis(),
+
+    @PropertyName("blockedUsers")
+    val blockedUsers: List<String> = emptyList()
 ) {
     companion object {
         /**

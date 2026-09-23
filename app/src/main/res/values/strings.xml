@@ -77,6 +77,26 @@
     <string name="feed_empty_refresh_button">Actualizar</string>
     <string name="feed_error_title">No pudimos cargar el feed</string>
     <string name="feed_error_retry_button">Reintentar</string>
+    <string name="feed_more_options_cd">Más opciones</string>
+    <string name="feed_more_options_title">Más opciones</string>
+    <string name="feed_more_options_report">Reportar contenido</string>
+    <string name="feed_more_options_block">Bloquear a @%1$s</string>
+    <string name="feed_more_options_cancel">Cancelar</string>
+    <string name="feed_report_title">Reportar contenido</string>
+    <string name="feed_report_reason_inappropriate">Contenido inapropiado</string>
+    <string name="feed_report_reason_spam">Spam</string>
+    <string name="feed_report_reason_harassment">Violencia o acoso</string>
+    <string name="feed_report_reason_other">Otro</string>
+    <string name="feed_report_submit_button">Enviar</string>
+    <string name="feed_report_cancel_button">Cancelar</string>
+    <string name="feed_block_title">Bloquear a @%1$s</string>
+    <string name="feed_block_message">No volverás a ver su contenido.</string>
+    <string name="feed_block_confirm_button">Bloquear</string>
+    <string name="feed_block_success_message">Usuario bloqueado. Ya no verás su contenido.</string>
+    <string name="feed_block_error_message">No se pudo bloquear al usuario. Intenta de nuevo.</string>
+    <string name="feed_report_success_message">Reporte enviado. Gracias por avisarnos.</string>
+    <string name="feed_report_error_message">No se pudo enviar el reporte. Intenta de nuevo.</string>
+    <string name="feed_block_cancel_button">Cancelar</string>
 
     <!-- Ranking -->
     <string name="ranking_title">Ranking</string>

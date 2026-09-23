@@ -2,6 +2,10 @@ package com.negociodigital.boomday.ui.feed
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.google.firebase.auth.FirebaseAuth
+import com.negociodigital.boomday.R
+import com.negociodigital.boomday.data.repository.ReportRepository
+import com.negociodigital.boomday.data.repository.UserRepository
 import com.negociodigital.boomday.data.repository.VideoRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.util.Collections
@@ -11,17 +15,32 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 import timber.log.Timber
 import javax.inject.Inject
 
 @HiltViewModel
 class FeedViewModel @Inject constructor(
-    private val videoRepository: VideoRepository
+    private val videoRepository: VideoRepository,
+    private val userRepository: UserRepository,
+    private val reportRepository: ReportRepository,
+    private val auth: FirebaseAuth
 ) : ViewModel() {
 
     private val _feedState = MutableStateFlow<FeedState>(FeedState.Loading)
     val feedState: StateFlow<FeedState> = _feedState.asStateFlow()
+
+    private val blockedUserIds = MutableStateFlow<Set<String>>(emptySet())
+
+    // Int es un @StringRes: la UI lo resuelve con stringResource() para no hardcodear
+    // texto en el ViewModel.
+    private val _actionMessage = MutableStateFlow<Int?>(null)
+    val actionMessage: StateFlow<Int?> = _actionMessage.asStateFlow()
+
+    fun clearActionMessage() {
+        _actionMessage.value = null
+    }
 
     // videoIds ya notificados al repo en esta sesión del ViewModel, para no reenviar
     // incrementViews() en cada recomposición de la pantalla. Envuelto en
@@ -41,7 +60,12 @@ class FeedViewModel @Inject constructor(
 
     private fun loadFeed() {
         feedJob = viewModelScope.launch {
-            videoRepository.getTodayVideos()
+            auth.currentUser?.uid?.let { uid ->
+                blockedUserIds.value = userRepository.getBlockedUsers(uid)
+            }
+            combine(videoRepository.getTodayVideos(), blockedUserIds) { videos, blocked ->
+                videos.filterNot { it.userId in blocked }
+            }
                 .catch { e ->
                     Timber.e(e, "FeedViewModel: Error cargando feed")
                     _feedState.value = FeedState.Error(e.message ?: "Error al cargar el feed")
@@ -96,6 +120,39 @@ class FeedViewModel @Inject constructor(
             result.onFailure { e ->
                 Timber.e(e, "FeedViewModel: Error incrementando vista de video: $videoId")
             }
+        }
+    }
+
+    /**
+     * Bloquea a un usuario: se actualiza `blockedUsers` en Firestore y, de inmediato (sin
+     * esperar a que el listener de Firestore vuelva a emitir), se refleja en el feed actual
+     * porque `blockedUserIds` es la key del combine() de arriba.
+     */
+    fun blockUser(userId: String) {
+        viewModelScope.launch {
+            val currentUid = auth.currentUser?.uid ?: return@launch
+            userRepository.blockUser(currentUid, userId)
+                .onSuccess {
+                    blockedUserIds.value = blockedUserIds.value + userId
+                    _actionMessage.value = R.string.feed_block_success_message
+                }
+                .onFailure { e ->
+                    Timber.e(e, "FeedViewModel: Error bloqueando usuario: $userId")
+                    _actionMessage.value = R.string.feed_block_error_message
+                }
+        }
+    }
+
+    fun reportVideo(videoId: String, reportedUserId: String, reason: String) {
+        viewModelScope.launch {
+            reportRepository.submitReport(reportedUserId, videoId, reason)
+                .onSuccess {
+                    _actionMessage.value = R.string.feed_report_success_message
+                }
+                .onFailure { e ->
+                    Timber.e(e, "FeedViewModel: Error enviando reporte de video: $videoId")
+                    _actionMessage.value = R.string.feed_report_error_message
+                }
         }
     }
 }
