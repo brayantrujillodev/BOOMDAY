@@ -1,13 +1,17 @@
 package com.negociodigital.boomday.ui.profile
 
-import android.app.Application
-import androidx.lifecycle.AndroidViewModel
+import android.content.Context
+import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.google.firebase.auth.FirebaseUser
 import com.negociodigital.boomday.data.repository.ProfileRepository
+import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import javax.inject.Inject
 
 data class ProfileUiState(
     val isLoading: Boolean = true,
@@ -16,14 +20,14 @@ data class ProfileUiState(
     val error: String? = null
 )
 
-class ProfileViewModel(
-    application: Application
-) : AndroidViewModel(application) {
-
-    private val repository = ProfileRepository()
+@HiltViewModel
+class ProfileViewModel @Inject constructor(
+    private val repository: ProfileRepository,
+    @ApplicationContext private val context: Context
+) : ViewModel() {
 
     private val _uiState = MutableStateFlow(ProfileUiState())
-    val uiState: StateFlow<ProfileUiState> = _uiState
+    val uiState: StateFlow<ProfileUiState> = _uiState.asStateFlow()
 
     init {
         loadUser()
@@ -40,7 +44,7 @@ class ProfileViewModel(
     fun logout() {
         viewModelScope.launch {
             try {
-                repository.signOut(getApplication())
+                repository.signOut(context)
                 _uiState.value = _uiState.value.copy(
                     isLoggedOut = true
                 )

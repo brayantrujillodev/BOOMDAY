@@ -1,24 +1,14 @@
 package com.negociodigital.boomday.di
 
-import android.content.Context
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ktx.firestore
 import com.google.firebase.ktx.Firebase
 import com.google.firebase.storage.FirebaseStorage
 import com.google.firebase.storage.ktx.storage
-import com.negociodigital.boomday.data.repository.AuthRepository
-import com.negociodigital.boomday.data.repository.GoogleAuthRepository
-import com.negociodigital.boomday.data.repository.ProfileRepository
-import com.negociodigital.boomday.data.repository.StorageRepository
-import com.negociodigital.boomday.data.repository.UploadRepository
-import com.negociodigital.boomday.data.repository.UserRepository
-import com.negociodigital.boomday.data.repository.VideoRepository
-import com.negociodigital.boomday.domain.usecase.GoogleSignInUseCase
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
-import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import javax.inject.Singleton
 
@@ -48,76 +38,10 @@ object AppModule {
 
     // ==================== REPOSITORIES ====================
 
-    // ✅ CORREGIDO: AuthRepository solo necesita FirebaseAuth
-    @Provides
-    @Singleton
-    fun provideAuthRepository(
-        auth: FirebaseAuth
-    ): AuthRepository {
-        return AuthRepository(auth)
-    }
-
-    @Provides
-    @Singleton
-    fun provideGoogleAuthRepository(
-        auth: FirebaseAuth
-    ): GoogleAuthRepository {
-        return GoogleAuthRepository(auth)
-    }
-
-    @Provides
-    @Singleton
-    fun provideUserRepository(
-        firestore: FirebaseFirestore
-    ): UserRepository {
-        return UserRepository(firestore)
-    }
-
-    @Provides
-    @Singleton
-    fun provideProfileRepository(
-        auth: FirebaseAuth
-    ): ProfileRepository {
-        return ProfileRepository(auth)
-    }
-
-    @Provides
-    @Singleton
-    fun provideVideoRepository(
-        firestore: FirebaseFirestore,
-        auth: FirebaseAuth
-    ): VideoRepository {
-        return VideoRepository(firestore, auth)
-    }
-
-    @Provides
-    @Singleton
-    fun provideStorageRepository(
-        storage: FirebaseStorage,
-        auth: FirebaseAuth
-    ): StorageRepository {
-        return StorageRepository(storage, auth)
-    }
-
-    @Provides
-    @Singleton
-    fun provideUploadRepository(
-        storageRepository: StorageRepository,
-        videoRepository: VideoRepository,
-        auth: FirebaseAuth,
-        @ApplicationContext context: Context
-    ): UploadRepository {
-        return UploadRepository(storageRepository, videoRepository, auth, context)
-    }
-
-    // ==================== USE CASES ====================
-
-    @Provides
-    @Singleton
-    fun provideGoogleSignInUseCase(
-        googleAuthRepository: GoogleAuthRepository,
-        userRepository: UserRepository
-    ): GoogleSignInUseCase {
-        return GoogleSignInUseCase(googleAuthRepository, userRepository)
-    }
+    // Todos los repositorios (AuthRepository, GoogleAuthRepository, UserRepository,
+    // VideoRepository, StorageRepository, UploadRepository, ProfileRepository) y
+    // GoogleSignInUseCase declaran "@Singleton class X @Inject constructor(...)" en su
+    // propio archivo — Hilt los resuelve solo con eso. Un @Provides manual acá para el
+    // mismo tipo duplica el binding y falla en compilación ([Dagger/DuplicateBindings]);
+    // no agregar ninguno salvo que la clase no tenga @Inject constructor propio.
 }

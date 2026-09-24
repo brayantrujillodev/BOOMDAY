@@ -17,8 +17,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.google.firebase.auth.FirebaseAuth
-import kotlinx.coroutines.delay
+import androidx.hilt.navigation.compose.hiltViewModel
 import com.negociodigital.boomday.R
 
 /**
@@ -36,10 +35,10 @@ import com.negociodigital.boomday.R
 @Composable
 fun SplashScreen(
     onUserLoggedIn: () -> Unit,
-    onUserNotLoggedIn: () -> Unit
+    onUserNotLoggedIn: () -> Unit,
+    viewModel: SplashViewModel = hiltViewModel()
 ) {
-    // Instancia de Firebase Auth para verificar el estado de autenticación
-    val auth = FirebaseAuth.getInstance()
+    val state by viewModel.state.collectAsState()
 
     // Obtener configuración del dispositivo para responsive design
     val configuration = LocalConfiguration.current
@@ -146,17 +145,14 @@ fun SplashScreen(
     // ============================================
 
     /**
-     * LaunchedEffect se ejecuta una sola vez al montar el composable
-     * Espera 2.5 segundos y luego verifica el estado de autenticación
+     * Reacciona al estado de autenticación resuelto por SplashViewModel
+     * (que ya incluye el tiempo de visualización del branding antes de decidir).
      */
-    LaunchedEffect(Unit) {
-        delay(2500) // Tiempo de visualización del splash
-
-        // Verificar si hay un usuario autenticado
-        if (auth.currentUser != null) {
-            onUserLoggedIn()
-        } else {
-            onUserNotLoggedIn()
+    LaunchedEffect(state) {
+        when (state) {
+            SplashState.LoggedIn -> onUserLoggedIn()
+            SplashState.LoggedOut -> onUserNotLoggedIn()
+            SplashState.Loading -> Unit
         }
     }
 

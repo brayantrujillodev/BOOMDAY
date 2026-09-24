@@ -6,13 +6,13 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.hilt.navigation.compose.hiltViewModel
 
 @Composable
 fun ProfileScreen(
-    onLogoutSuccess: () -> Unit
+    onLogoutSuccess: () -> Unit,
+    viewModel: ProfileViewModel = hiltViewModel()
 ) {
-    val viewModel: ProfileViewModel = viewModel()
     val state by viewModel.uiState.collectAsState()
 
     // 🔥 Detectar logout

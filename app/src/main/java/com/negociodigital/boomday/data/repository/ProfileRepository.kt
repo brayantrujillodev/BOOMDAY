@@ -4,9 +4,12 @@ import android.content.Context
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
 import com.negociodigital.boomday.data.auth.GoogleAuthConfig
+import javax.inject.Inject
+import javax.inject.Singleton
 
-class ProfileRepository(
-    private val auth: FirebaseAuth = FirebaseAuth.getInstance()
+@Singleton
+class ProfileRepository @Inject constructor(
+    private val auth: FirebaseAuth
 ) {
 
     fun getCurrentUser(): FirebaseUser? {
