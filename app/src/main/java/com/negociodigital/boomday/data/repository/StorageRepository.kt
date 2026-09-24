@@ -127,4 +127,30 @@ class StorageRepository @Inject constructor(
             }
         }
     }
+
+    /**
+     * Borra el archivo de Storage al que apunta un download URL previamente emitido por
+     * este mismo proyecto (ver isValidStorageUrl en firestore.rules). Idempotente: una URL
+     * vacía (como el thumbnailUrl opcional de un video sin thumbnail) o un archivo que ya
+     * no existe se tratan como éxito, no como error — para que el llamador no tenga que
+     * distinguir "nunca hubo archivo" de "ya se borró".
+     */
+    suspend fun deleteFileByUrl(url: String): Result<Unit> {
+        if (url.isBlank()) return Result.success(Unit)
+
+        return try {
+            storage.getReferenceFromUrl(url).delete().await()
+            Result.success(Unit)
+        } catch (e: StorageException) {
+            if (e.errorCode == StorageException.ERROR_OBJECT_NOT_FOUND) {
+                Result.success(Unit)
+            } else {
+                Timber.e(e, "StorageRepository: Error borrando archivo de Storage: $url")
+                Result.failure(e)
+            }
+        } catch (e: Exception) {
+            Timber.e(e, "StorageRepository: Error borrando archivo de Storage: $url")
+            Result.failure(e)
+        }
+    }
 }

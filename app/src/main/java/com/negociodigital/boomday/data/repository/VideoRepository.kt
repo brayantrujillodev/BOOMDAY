@@ -19,7 +19,8 @@ import javax.inject.Singleton
 @Singleton
 class VideoRepository @Inject constructor(
     private val firestore: FirebaseFirestore,
-    private val auth: FirebaseAuth
+    private val auth: FirebaseAuth,
+    private val storageRepository: StorageRepository
 ) {
 
     private val videosCollection = firestore.collection("videos")
@@ -169,7 +170,23 @@ class VideoRepository @Inject constructor(
     }
 
     /**
-     * Elimina un video
+     * Elimina un video: el documento de Firestore y los blobs de Storage (video +
+     * thumbnail) que le pertenecían.
+     *
+     * FIX (Storage huérfano): antes esto solo borraba el documento de Firestore — el
+     * blob de video en Storage quedaba huérfano para siempre, ni siquiera la Cloud
+     * Function de expiración lo encuentra después (busca por documentos que ya no
+     * existen). El documento se borra primero para que el video desaparezca del
+     * Feed/Ranking de inmediato; el borrado de Storage es best-effort después (mismo
+     * criterio que cleanupExpiredVideos en functions/): si un blob falla en borrarse,
+     * se loguea pero no revierte ni falla la operación completa, porque desde la
+     * perspectiva del usuario el video ya fue "eliminado" con éxito.
+     *
+     * Nota: la subcolección videos/{videoId}/views (dedupe de vistas) no se borra
+     * acá — el SDK cliente no puede hacer recursiveDelete, solo el Admin SDK (eso ya
+     * lo cubre cleanupExpiredVideos para videos vencidos; un video borrado manualmente
+     * por su dueño antes de las 24h deja esa subcolección huérfana, de bajo impacto
+     * porque es solo metadata de dedupe, no contenido visible).
      */
     suspend fun deleteVideo(videoId: String): Result<Unit> {
         return try {
@@ -184,6 +201,11 @@ class VideoRepository @Inject constructor(
             }
 
             videosCollection.document(videoId).delete().await()
+
+            storageRepository.deleteFileByUrl(video.videoUrl)
+                .onFailure { Timber.e(it, "VideoRepository: video eliminado pero falló borrar el blob de video en Storage: $videoId") }
+            storageRepository.deleteFileByUrl(video.thumbnailUrl)
+                .onFailure { Timber.e(it, "VideoRepository: video eliminado pero falló borrar el thumbnail en Storage: $videoId") }
 
             Timber.d("VideoRepository: Video eliminado: $videoId")
             Result.success(Unit)

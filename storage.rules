@@ -3,17 +3,23 @@ service firebase.storage {
   match /b/{bucket}/o {
     match /videos/{userId}/{fileName} {
       allow read: if request.auth != null;
-      allow write: if request.auth != null
+      // FIX: "allow write" combinaba create/update/delete, pero request.resource es
+      // null en un delete — evaluar request.resource.size ahí lanza un error y la regla
+      // deniega. Separado para que el dueño pueda borrar su propio video (necesario
+      // para VideoRepository.deleteVideo(), que ahora también borra el blob de Storage).
+      allow create, update: if request.auth != null
                    && request.auth.uid == userId
                    && request.resource.size < 100 * 1024 * 1024
                    && request.resource.contentType.matches('video/.*');
+      allow delete: if request.auth != null && request.auth.uid == userId;
     }
     match /thumbnails/{userId}/{fileName} {
       allow read: if request.auth != null;
-      allow write: if request.auth != null
+      allow create, update: if request.auth != null
                    && request.auth.uid == userId
                    && request.resource.size < 5 * 1024 * 1024
                    && request.resource.contentType.matches('image/.*');
+      allow delete: if request.auth != null && request.auth.uid == userId;
     }
   }
 }
