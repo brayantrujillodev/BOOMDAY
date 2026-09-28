@@ -95,6 +95,10 @@ sealed class MainRoute(
  * 3. Mantiene estado al cambiar de pestaña
  *
  * @param onLogoutSuccess Callback cuando el usuario cierra sesión desde Profile
+ * @param onAccountDeleted Callback cuando el usuario elimina su cuenta desde Profile.
+ *   Requiere la misma navegación que onLogoutSuccess (volver a LOGIN limpiando el
+ *   backstack), pero se mantiene como callback separado porque semánticamente es un
+ *   evento distinto, no un logout.
  * @param onNavigateToUpload Callback cuando el usuario toca el tab "Crear". El flujo de
  *   grabación/subida vive fuera del NavBar (a pantalla completa, ver Routes.UPLOAD_FLOW
  *   en NavGraph.kt), así que este tab no navega dentro del NavHost interno: delega al
@@ -103,6 +107,7 @@ sealed class MainRoute(
 @Composable
 fun MainScreen(
     onLogoutSuccess: () -> Unit,
+    onAccountDeleted: () -> Unit,
     onNavigateToUpload: () -> Unit
 ) {
     // Controlador de navegación interno (solo para MainScreen)
@@ -198,7 +203,8 @@ fun MainScreen(
             // 👤 PROFILE
             composable(MainRoute.Profile.route) {
                 ProfileScreen(
-                    onLogoutSuccess = onLogoutSuccess
+                    onLogoutSuccess = onLogoutSuccess,
+                    onAccountDeleted = onAccountDeleted
                 )
             }
         }

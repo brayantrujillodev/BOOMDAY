@@ -4,6 +4,7 @@ import com.google.firebase.Timestamp
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.negociodigital.boomday.data.model.User
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.tasks.await
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -169,5 +170,24 @@ class UserRepository @Inject constructor(
      */
     suspend fun getBlockedUsers(uid: String): Set<String> {
         return getUser(uid)?.blockedUsers?.toSet() ?: emptySet()
+    }
+
+    /**
+     * Borra el documento de perfil de un usuario en Firestore. Usado por
+     * DeleteAccountUseCase al eliminar la cuenta; no toca Firebase Auth ni los videos
+     * del usuario, eso lo orquesta el use case por separado.
+     */
+    suspend fun deleteUser(uid: String): Result<Unit> {
+        return try {
+            firestore.collection(USERS_COLLECTION)
+                .document(uid)
+                .delete()
+                .await()
+            Result.success(Unit)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
     }
 }

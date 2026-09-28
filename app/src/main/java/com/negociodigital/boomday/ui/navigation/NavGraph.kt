@@ -209,15 +209,20 @@ fun NavGraph(
          * - Logout desde Profile → LOGIN (limpia todo el backstack)
          */
         composable(Routes.MAIN) {
+            // Logout y borrado de cuenta terminan en la misma navegación: volver a LOGIN
+            // limpiando todo el backstack (ver comentario abajo).
+            val returnToLogin: () -> Unit = {
+                navController.navigate(Routes.LOGIN) {
+                    // Limpiar TODO el backstack hasta la raíz
+                    // Esto garantiza que al presionar "atrás" desde Login
+                    // la app se cierre en lugar de volver a MAIN
+                    popUpTo(0) { inclusive = true }
+                }
+            }
+
             MainScreen(
-                onLogoutSuccess = {
-                    navController.navigate(Routes.LOGIN) {
-                        // Limpiar TODO el backstack hasta la raíz
-                        // Esto garantiza que al presionar "atrás" desde Login
-                        // la app se cierre en lugar de volver a MAIN
-                        popUpTo(0) { inclusive = true }
-                    }
-                },
+                onLogoutSuccess = returnToLogin,
+                onAccountDeleted = returnToLogin,
                 onNavigateToUpload = {
                     navController.navigate(Routes.UPLOAD_FLOW) {
                         // Evita apilar UPLOAD_FLOW dos veces si el usuario hace doble tap en "Crear"

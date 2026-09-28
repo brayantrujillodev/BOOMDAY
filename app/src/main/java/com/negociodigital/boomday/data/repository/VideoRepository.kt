@@ -6,6 +6,7 @@ import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
 import com.negociodigital.boomday.data.model.Video
 import com.negociodigital.boomday.data.util.currentDayKeyBogota
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
@@ -165,6 +166,35 @@ class VideoRepository @Inject constructor(
             Result.success(video)
         } catch (e: Exception) {
             Timber.e(e, "VideoRepository: Error obteniendo video por ID: $videoId")
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Obtiene TODOS los videos de un usuario, sin filtrar por día. Pensado para
+     * DeleteAccountUseCase, que necesita encontrar y borrar cada video del usuario
+     * (incluso los de días anteriores que la Cloud Function de expiración no haya
+     * limpiado todavía) al eliminar la cuenta. No usar para Feed/Ranking, que sí
+     * filtran por día.
+     */
+    suspend fun getVideosByUser(userId: String): Result<List<Video>> {
+        return try {
+            val snapshot = videosCollection.whereEqualTo("userId", userId).get().await()
+
+            val videos = snapshot.documents.mapNotNull { doc ->
+                try {
+                    doc.toObject(Video::class.java)?.copy(videoId = doc.id)
+                } catch (e: Exception) {
+                    Timber.e(e, "VideoRepository: Error parseando video: ${doc.id}")
+                    null
+                }
+            }
+
+            Result.success(videos)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Timber.e(e, "VideoRepository: Error obteniendo videos del usuario: $userId")
             Result.failure(e)
         }
     }

@@ -4,6 +4,8 @@ App de video corto **efímero**: cada video vive 24 horas y desaparece. Ranking 
 
 **Estado: MVP en desarrollo.** El ciclo completo (registro → grabar → subir → feed → ranking) funciona de punta a punta. Todavía no está listo para publicarse en Google Play — ver [ROADMAP](docs/ROADMAP.md).
 
+**Nota de infraestructura (2026-09-28):** el proyecto de Firebase de producción es **`boomday-e2308`**, no `boomday-85bef` (el que trae el `google-services.json` de desarrollo histórico). La migración a `boomday-e2308` está en curso — ver el punto "Migración de proyecto de Firebase" en el [ROADMAP](docs/ROADMAP.md) para el estado exacto de qué falta (plan Blaze, Storage, proveedor de Google Sign-In).
+
 ## Qué es BoomDay
 
 La idea central es la escasez: si tu video solo dura un día, cada publicación importa. El "top de hoy" en Neiva es una meta alcanzable (a diferencia de un ranking global), y esa pantalla de ranking está pensada como motor viral — se ve bien en captura de pantalla y se comparte.
@@ -50,7 +52,7 @@ app/src/main/java/com/negociodigital/boomday/
 │   │                     # UploadRepository, UserRepository, ProfileRepository...
 │   └── util/            # DateUtils (dayKey en zona horaria de Neiva)
 ├── di/                  # AppModule (bindings de Hilt)
-├── domain/usecase/      # GoogleSignInUseCase
+├── domain/usecase/      # GoogleSignInUseCase, DeleteAccountUseCase
 └── ui/
     ├── splash/, login/, main/, navigation/, theme/
     ├── feed/            # FeedScreen (VerticalPager + ExoPlayer), FeedViewModel
@@ -69,12 +71,13 @@ app/src/main/java/com/negociodigital/boomday/
 | Splash / verificación de sesión | ✅ |
 | Navegación (NavBar de 5 pestañas) | ✅ |
 | Perfil y logout | ✅ |
+| Eliminación de cuenta (requisito de Play para apps con creación de cuenta) | ✅ borra videos + perfil + cuenta de Auth, con reautenticación automática si Firebase la exige |
 | Subir video (grabar con CameraX máx. 60s, importar de galería, revisar, subir con progreso/cancelación) | ✅ |
 | Feed (VerticalPager, un solo ExoPlayer reutilizado, conteo de vistas) | ✅ |
 | Ranking diario (Top por vistas, diseñado para screenshot) | ✅ |
 | Explore (buscar, categorías, sugeridos) | ❌ mock, sin datos reales |
-| Expiración real de 24h (borrado de Storage/Firestore) | 🚧 Cloud Function implementada (`functions/`), falta desplegar (ver ROADMAP) |
-| Reporte y bloqueo de usuarios | 🚧 implementado en código, falta desplegar reglas de Firestore (ver ROADMAP) |
+| Expiración real de 24h (borrado de Storage/Firestore) | 🚧 Cloud Function implementada (`functions/`), deploy bloqueado por plan Blaze pendiente en `boomday-e2308` (ver ROADMAP) |
+| Reporte y bloqueo de usuarios | 🚧 implementado en código; reglas de Firestore ya desplegadas en `boomday-e2308` |
 | Validación server-side de duración/content-type de video | ❌ pendiente (requiere una función `onObjectFinalized` separada de la de expiración) |
 | Reglas de Firestore/Storage | ✅ escritas y con validación de ownership, límites y dedupe atómico |
 | CI (build automático) | ✅ este mismo cambio |
@@ -92,26 +95,28 @@ Detalle priorizado de lo pendiente en [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ### `google-services.json`
 
-Este archivo **no está versionado** (contiene el `project_id`/`api_key` del proyecto Firebase real). Para compilar localmente:
+Este archivo **no está versionado** (contiene el `project_id`/`api_key` del proyecto Firebase real). Para compilar localmente contra el proyecto de producción (`boomday-e2308`):
 
-1. Entrá a la [consola de Firebase](https://console.firebase.google.com/) del proyecto (o creá uno nuevo para desarrollo).
-2. Agregá una app Android con `applicationId = com.negociodigital.boomday`.
-3. Descargá `google-services.json` y colocalo en `app/google-services.json`.
+1. Entrá a la [consola de Firebase](https://console.firebase.google.com/project/boomday-e2308) del proyecto `boomday-e2308` (o creá uno propio para desarrollo).
+2. Ya existe registrada una app Android con `applicationId = com.negociodigital.boomday` (App ID `1:345021293955:android:cbc28ac7e965205838c2b6`). Si es tu primera vez, agregá el SHA-1 de tu keystore de debug en Configuración del proyecto → tu app → "Huellas digitales del certificado SHA" — sin esto Google Sign-In falla en tu build local aunque compile.
+3. Descargá `google-services.json` (Configuración del proyecto → tu app → "Descargar google-services.json") y colocalo en `app/google-services.json`.
 
 ### Reglas de Firestore/Storage
 
 ```bash
 npm install -g firebase-tools
 firebase login
-firebase use <tu-project-id>
+firebase use boomday-e2308   # o <tu-project-id> propio
 firebase deploy --only firestore:rules,firestore:indexes,storage
 ```
+
+Estado en `boomday-e2308`: las reglas de Firestore ya están desplegadas. El deploy de Storage está bloqueado porque el proyecto todavía no tiene Storage activado (requiere plan Blaze, ver abajo) — hay que entrar una vez a Firebase Console → Storage → "Comenzar" después de subir a Blaze, recién ahí el comando de arriba funciona.
 
 El índice compuesto de Firestore tarda varios minutos en construirse — esperá a que aparezca "Enabled" en Firebase Console → Firestore → Índices antes de probar el Ranking.
 
 ### Cloud Functions (expiración de 24h)
 
-`functions/` contiene `cleanupExpiredVideos`, la función programada que borra videos vencidos. Necesita el plan **Blaze** habilitado en el proyecto (las funciones programadas usan Cloud Scheduler, no disponible en el plan gratuito Spark):
+`functions/` contiene `cleanupExpiredVideos`, la función programada que borra videos vencidos. Necesita el plan **Blaze** habilitado en el proyecto (las funciones programadas usan Cloud Scheduler + Pub/Sub, no disponibles en el plan gratuito Spark). `boomday-e2308` sigue en Spark — el deploy falla hasta que se actualice el plan desde https://console.firebase.google.com/project/boomday-e2308/usage/details:
 
 ```bash
 cd functions

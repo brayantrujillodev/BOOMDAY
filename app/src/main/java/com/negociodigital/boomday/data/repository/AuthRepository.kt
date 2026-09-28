@@ -2,9 +2,11 @@ package com.negociodigital.boomday.data.repository
 
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.tasks.await
 import timber.log.Timber
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -156,5 +158,33 @@ class AuthRepository @Inject constructor(
             ?.map { it.providerId }
             ?.filter { it != "firebase" } // Filtrar el proveedor base de Firebase
             ?: emptyList()
+    }
+
+    /**
+     * Elimina permanentemente la cuenta de Firebase Auth del usuario actual.
+     *
+     * Firebase exige un login "reciente" para esta operación por seguridad: si la
+     * sesión tiene rato abierta, esto falla con FirebaseAuthRecentLoginRequiredException
+     * y el llamador (DeleteAccountUseCase) debe pedir reautenticación antes de reintentar.
+     *
+     * Importante: NO borra los datos de Firestore/Storage del usuario, eso lo hace
+     * DeleteAccountUseCase orquestando UserRepository/VideoRepository ANTES de llamar
+     * a esto — una vez borrada la cuenta de Auth, request.auth.uid deja de existir y
+     * las reglas de seguridad ya no dejarían borrar ese contenido.
+     */
+    suspend fun deleteCurrentUser(): Result<Unit> {
+        return try {
+            val user = firebaseAuth.currentUser
+                ?: return Result.failure(IllegalStateException("No hay usuario autenticado"))
+
+            user.delete().await()
+            Timber.i("🗑️ Cuenta de Firebase Auth eliminada")
+            Result.success(Unit)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Timber.e(e, "❌ Error al eliminar la cuenta")
+            Result.failure(e)
+        }
     }
 }

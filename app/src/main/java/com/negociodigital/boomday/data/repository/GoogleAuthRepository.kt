@@ -3,6 +3,7 @@ package com.negociodigital.boomday.data.repository
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.auth.GoogleAuthProvider
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.tasks.await
 import timber.log.Timber
 import javax.inject.Inject
@@ -59,6 +60,32 @@ class GoogleAuthRepository @Inject constructor(
 
         } catch (e: Exception) {
             Timber.e(e, "❌ [GoogleAuthRepo] Error en autenticación con Google")
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Reautentica al usuario actual con una credencial de Google fresca.
+     *
+     * Firebase exige esto antes de operaciones sensibles (como borrar la cuenta) si
+     * la sesión no es "reciente" — ver AuthRepository.deleteCurrentUser().
+     *
+     * @param idToken Token de identificación obtenido de un Google Sign-In recién hecho
+     */
+    suspend fun reauthenticateWithGoogle(idToken: String): Result<Unit> {
+        return try {
+            val user = firebaseAuth.currentUser
+                ?: return Result.failure(IllegalStateException("No hay usuario autenticado"))
+
+            val credential = GoogleAuthProvider.getCredential(idToken, null)
+            user.reauthenticate(credential).await()
+
+            Timber.i("✅ [GoogleAuthRepo] Reautenticación exitosa")
+            Result.success(Unit)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Timber.e(e, "❌ [GoogleAuthRepo] Error en reautenticación")
             Result.failure(e)
         }
     }
