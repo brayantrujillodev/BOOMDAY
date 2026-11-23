@@ -8,6 +8,7 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.storage.FirebaseStorage
 import com.google.firebase.storage.OnProgressListener
 import com.google.firebase.storage.StorageException
+import com.google.firebase.storage.StorageMetadata
 import com.google.firebase.storage.StorageReference
 import com.google.firebase.storage.UploadTask
 import com.negociodigital.boomday.data.model.UploadException
@@ -25,6 +26,25 @@ import java.io.ByteArrayOutputStream
 import javax.inject.Inject
 import javax.inject.Singleton
 
+private const val DEFAULT_VIDEO_CONTENT_TYPE = "video/mp4"
+private const val THUMBNAIL_CONTENT_TYPE = "image/jpeg"
+
+/**
+ * storage.rules exige request.resource.contentType de tipo video (o image en thumbnails); sin
+ * metadata explicita putFile/putBytes no envian contentType y la regla deniega (403).
+ * Usa el tipo resuelto (p. ej. ContentResolver.getType) solo si empieza por "video/"; si no, video/mp4
+ * (CameraX graba MP4).
+ */
+internal fun videoContentTypeFor(resolvedType: String?): String =
+    if (resolvedType != null && resolvedType.startsWith("video/", ignoreCase = true)) resolvedType
+    else DEFAULT_VIDEO_CONTENT_TYPE
+
+internal fun videoMetadata(resolvedType: String?): StorageMetadata =
+    StorageMetadata.Builder().setContentType(videoContentTypeFor(resolvedType)).build()
+
+internal fun thumbnailMetadata(): StorageMetadata =
+    StorageMetadata.Builder().setContentType(THUMBNAIL_CONTENT_TYPE).build()
+
 @Singleton
 class StorageRepository @Inject constructor(
     private val storage: FirebaseStorage,
@@ -34,13 +54,13 @@ class StorageRepository @Inject constructor(
     private val userId: String
         get() = auth.currentUser?.uid ?: throw IllegalStateException("User not logged in")
 
-    suspend fun uploadVideo(videoUri: Uri): Result<String> {
+    suspend fun uploadVideo(videoUri: Uri, contentType: String? = null): Result<String> {
         return try {
             val timestamp = System.currentTimeMillis()
             val videoRef = storage.reference
                 .child("videos/$userId/video_$timestamp.mp4")
 
-            videoRef.putFile(videoUri).await()
+            videoRef.putFile(videoUri, videoMetadata(contentType)).await()
             val downloadUrl = videoRef.downloadUrl.await()
 
             Result.success(downloadUrl.toString())
@@ -62,7 +82,7 @@ class StorageRepository @Inject constructor(
             bitmap.compress(Bitmap.CompressFormat.JPEG, 80, baos)
             val data = baos.toByteArray()
 
-            thumbnailRef.putBytes(data).await()
+            thumbnailRef.putBytes(data, thumbnailMetadata()).await()
             val downloadUrl = thumbnailRef.downloadUrl.await()
 
             Result.success(downloadUrl.toString())
@@ -79,7 +99,7 @@ class StorageRepository @Inject constructor(
      * Misma ruta de destino que [uploadVideo]. Pensado para UploadRepository,
      * que puede cancelar la corrutina que colecta este Flow para abortar la subida.
      */
-    fun uploadVideoWithProgress(videoUri: Uri): Flow<UploadStatus> = callbackFlow {
+    fun uploadVideoWithProgress(videoUri: Uri, contentType: String? = null): Flow<UploadStatus> = callbackFlow {
         // Contrato: este flow NUNCA termina con excepción hacia el colector. Todo fallo
         // (usuario nulo, error de Storage, downloadUrl) se emite como UploadStatus.Error y
         // el canal se cierra SIN causa (close()), porque close(cause) relanzaría la
@@ -98,7 +118,7 @@ class StorageRepository @Inject constructor(
         val uploadTask: UploadTask
         try {
             videoRef = storage.reference.child("videos/$uid/video_$timestamp.mp4")
-            uploadTask = videoRef.putFile(videoUri)
+            uploadTask = videoRef.putFile(videoUri, videoMetadata(contentType))
         } catch (e: Exception) {
             if (e is CancellationException) throw e
             Timber.e(e, "StorageRepository: No se pudo iniciar la subida de video")

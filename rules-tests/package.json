@@ -3,7 +3,8 @@
   "private": true,
   "version": "1.0.0",
   "scripts": {
-    "test": "firebase emulators:exec --only firestore --project demo-boomday \"node --test --test-concurrency=1 firestore.rules.test.js\""
+    "test": "firebase emulators:exec --only firestore,storage --project demo-boomday \"node --test --test-concurrency=1 firestore.rules.test.js storage.rules.test.js\"",
+    "test:storage": "firebase emulators:exec --only storage --project demo-boomday \"node --test storage.rules.test.js\""
   },
   "devDependencies": {
     "@firebase/rules-unit-testing": "^4.0.1",

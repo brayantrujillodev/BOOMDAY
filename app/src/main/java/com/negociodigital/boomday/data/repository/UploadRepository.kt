@@ -86,7 +86,10 @@ class UploadRepository @Inject constructor(
         // .catch cubre cualquier excepción que escape del flow de Storage (defensa en
         // profundidad: StorageRepository ya no debería lanzar). CancellationException se
         // relanza siempre: nunca es un Error.
-        storageRepository.uploadVideoWithProgress(videoUri)
+        storageRepository.uploadVideoWithProgress(
+            videoUri,
+            runCatching { context.contentResolver.getType(videoUri) }.getOrNull()
+        )
             .catch { e ->
                 if (e is CancellationException) throw e
                 Timber.e(e, "UploadRepository: El flow de Storage terminó con excepción")

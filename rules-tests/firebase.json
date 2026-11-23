@@ -1,6 +1,7 @@
 {
   "emulators": {
     "firestore": { "port": 8089 },
+    "storage": { "port": 9198 },
     "ui": { "enabled": false }
   }
 }

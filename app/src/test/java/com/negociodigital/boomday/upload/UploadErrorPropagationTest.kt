@@ -5,6 +5,7 @@ import com.google.android.gms.tasks.OnFailureListener
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.storage.FirebaseStorage
+import com.google.firebase.storage.StorageMetadata
 import com.google.firebase.storage.StorageReference
 import com.google.firebase.storage.UploadTask
 import com.negociodigital.boomday.data.model.UploadStatus
@@ -56,7 +57,7 @@ class UploadErrorPropagationTest {
         val failSlot = slot<OnFailureListener>()
         every { storage.reference } returns root
         every { root.child(any()) } returns child
-        every { child.putFile(any()) } returns task
+        every { child.putFile(any(), any<StorageMetadata>()) } returns task
         every { task.addOnFailureListener(capture(failSlot)) } returns task
 
         val repo = StorageRepository(storage, auth)

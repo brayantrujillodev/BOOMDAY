@@ -51,7 +51,7 @@ class UploadRepositoryTest {
     private fun run(): Flow<UploadStatus> = repo.uploadVideoComplete(uri, "t", "d", emptyList(), "vid-1")
 
     private fun storageEmits(vararg s: UploadStatus) {
-        every { storage.uploadVideoWithProgress(any()) } returns flow { s.forEach { emit(it) } }
+        every { storage.uploadVideoWithProgress(any(), any()) } returns flow { s.forEach { emit(it) } }
     }
 
     @Test
@@ -69,7 +69,7 @@ class UploadRepositoryTest {
 
     @Test
     fun storageFlowThatThrowsIsCaughtAsError() = runBlocking {
-        every { storage.uploadVideoWithProgress(any()) } returns flow { throw IOException("boom") }
+        every { storage.uploadVideoWithProgress(any(), any()) } returns flow { throw IOException("boom") }
         assertTrue((run().toList().last() as UploadStatus.Error).throwable is IOException)
     }
 
@@ -81,7 +81,7 @@ class UploadRepositoryTest {
 
     @Test
     fun collectorCancellationIsNotConvertedToError() = runBlocking {
-        every { storage.uploadVideoWithProgress(any()) } returns flow {
+        every { storage.uploadVideoWithProgress(any(), any()) } returns flow {
             emit(UploadStatus.Progress(5))
             awaitCancellation()
         }
