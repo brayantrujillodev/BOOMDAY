@@ -72,7 +72,7 @@ class ExploreViewModel @Inject constructor(
             // Fail-closed: sin la lista de bloqueados no se muestra contenido sin filtrar.
             val blockedUserIds: Set<String>? = try {
                 withTimeoutOrNull(LOAD_TIMEOUT_MS) {
-                    auth.currentUser?.uid?.let { userRepository.getBlockedUsers(it) } ?: emptySet()
+                    auth.currentUser?.uid?.let { userRepository.getBlockedUsers(it).getOrThrow() } ?: emptySet()
                 }
             } catch (e: CancellationException) {
                 throw e

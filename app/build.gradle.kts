@@ -105,6 +105,10 @@ dependencies {
 
     // Testing
     testImplementation(libs.junit)
+    // runTest / Dispatchers.setMain para probar ViewModels y flows de subida
+    testImplementation(libs.kotlinx.coroutines.test)
+    // Mocks de Uri (android.jar stub), FirebaseAuth/Storage/UploadTask y repos finales
+    testImplementation(libs.mockk)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(platform(libs.androidx.compose.bom))

@@ -55,16 +55,20 @@ service cloud.firestore {
       // exactamente 1 por request — es lo que ya hace VideoRepository.incrementViews(),
       // acotado a un único campo para que no sirva como puerta trasera para editar el resto.
       //
-      // FIX (seguridad): además del incremento de +1, se exige con existsAfter() que el
-      // subdocumento de dedupe videos/{videoId}/views/{uid} exista al terminar la MISMA
-      // transacción/batch que hace este update. VideoRepository.incrementViews() ahora
-      // crea ese subdocumento y hace este update dentro de una única transacción de
-      // Firestore, así que un cliente que intente llamar directo al update de "views" sin
-      // crear el subdocumento de dedupe en la misma operación atómica es rechazado — ya no
-      // puede inflar vistas repitiendo solo la segunda escritura.
+      // FIX (seguridad, P0-1 integridad del ranking): el doc de dedupe
+      // videos/{videoId}/views/{uid} debe NO existir antes (exists = estado previo) y existir
+      // despues (existsAfter = estado tras la MISMA transaccion/batch). Con solo existsAfter()
+      // la regla tambien se cumplia cuando el doc ya existia, y un cliente modificado podia
+      // repetir "views + 1" indefinidamente. Asi cada uid solo puede sumar 1 vista por video:
+      // la primera operacion crea el dedupe (create-only, ver abajo) y las siguientes fallan
+      // porque exists() ya es true. En concurrencia, Firestore evalua las reglas contra el
+      // estado vigente al confirmar, asi que solo una de dos transacciones del mismo uid puede
+      // aplicarse. VideoRepository.incrementViews() (get -> set dedupe + update increment(1)
+      // en una transaccion) cumple exactamente este patron.
       allow update: if request.auth != null
                     && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['views'])
                     && request.resource.data.views == resource.data.views + 1
+                    && !exists(/databases/$(database)/documents/videos/$(videoId)/views/$(request.auth.uid))
                     && existsAfter(/databases/$(database)/documents/videos/$(videoId)/views/$(request.auth.uid));
 
       allow delete: if request.auth != null && request.auth.uid == resource.data.userId;
@@ -73,7 +77,10 @@ service cloud.firestore {
         // Solo el propio uid lee su doc de dedupe (VideoRepository.incrementViews solo hace
         // transaction.get sobre views/{su uid}); evita enumerar quién vio cada video.
         allow read: if request.auth != null && request.auth.uid == userId;
-        allow create: if request.auth != null && request.auth.uid == userId;
+        // Create-only y solo con el formato que escribe el cliente ({viewedAt}).
+        allow create: if request.auth != null && request.auth.uid == userId
+                      && request.resource.data.keys().hasOnly(['viewedAt'])
+                      && request.resource.data.viewedAt is int;
         allow update, delete: if false;
       }
     }

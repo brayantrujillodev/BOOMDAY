@@ -56,6 +56,14 @@
     <string name="upload_error_title">No se pudo subir el video</string>
     <string name="upload_error_retry_button">Reintentar</string>
     <string name="upload_error_discard_button">Descartar</string>
+    <string name="upload_error_not_logged_in">Debes iniciar sesión para subir un video.</string>
+    <string name="upload_error_invalid_duration">El video debe durar entre 3 y 60 segundos.</string>
+    <string name="upload_error_read_video">No pudimos leer el video seleccionado. Prueba con otro.</string>
+    <string name="upload_error_network">No hay conexión con el servidor. Revisa tu internet e inténtalo de nuevo.</string>
+    <string name="upload_error_timeout">La subida tardó demasiado. Revisa tu conexión e inténtalo de nuevo.</string>
+    <string name="upload_error_permission">No tienes permiso para publicar este video. Cierra sesión, vuelve a entrar e inténtalo de nuevo.</string>
+    <string name="upload_error_quota">El servicio no puede recibir más videos por ahora. Inténtalo más tarde.</string>
+    <string name="upload_error_unknown">Ocurrió un error inesperado al subir el video. Inténtalo de nuevo.</string>
 
     <!-- Upload - Cancelado -->
     <string name="upload_cancelled_title">Subida cancelada</string>

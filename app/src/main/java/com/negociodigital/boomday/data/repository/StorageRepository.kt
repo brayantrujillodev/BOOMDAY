@@ -8,10 +8,15 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.storage.FirebaseStorage
 import com.google.firebase.storage.OnProgressListener
 import com.google.firebase.storage.StorageException
+import com.google.firebase.storage.StorageReference
 import com.google.firebase.storage.UploadTask
+import com.negociodigital.boomday.data.model.UploadException
 import com.negociodigital.boomday.data.model.UploadStatus
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.buffer
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
@@ -39,7 +44,10 @@ class StorageRepository @Inject constructor(
             val downloadUrl = videoRef.downloadUrl.await()
 
             Result.success(downloadUrl.toString())
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
+            Timber.e(e, "StorageRepository: Error subiendo archivo")
             Result.failure(e)
         }
     }
@@ -58,7 +66,10 @@ class StorageRepository @Inject constructor(
             val downloadUrl = thumbnailRef.downloadUrl.await()
 
             Result.success(downloadUrl.toString())
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
+            Timber.e(e, "StorageRepository: Error subiendo archivo")
             Result.failure(e)
         }
     }
@@ -69,11 +80,33 @@ class StorageRepository @Inject constructor(
      * que puede cancelar la corrutina que colecta este Flow para abortar la subida.
      */
     fun uploadVideoWithProgress(videoUri: Uri): Flow<UploadStatus> = callbackFlow {
-        val timestamp = System.currentTimeMillis()
-        val videoRef = storage.reference
-            .child("videos/$userId/video_$timestamp.mp4")
+        // Contrato: este flow NUNCA termina con excepción hacia el colector. Todo fallo
+        // (usuario nulo, error de Storage, downloadUrl) se emite como UploadStatus.Error y
+        // el canal se cierra SIN causa (close()), porque close(cause) relanzaría la
+        // excepción en collect{} y, sin handler aguas arriba, tumbaría la app.
+        val uid = auth.currentUser?.uid
+        if (uid == null) {
+            Timber.w("StorageRepository: uploadVideoWithProgress sin usuario autenticado")
+            trySend(UploadStatus.Error(UploadException.NotLoggedIn()))
+            close()
+            awaitClose()
+            return@callbackFlow
+        }
 
-        val uploadTask = videoRef.putFile(videoUri)
+        val timestamp = System.currentTimeMillis()
+        val videoRef: StorageReference
+        val uploadTask: UploadTask
+        try {
+            videoRef = storage.reference.child("videos/$uid/video_$timestamp.mp4")
+            uploadTask = videoRef.putFile(videoUri)
+        } catch (e: Exception) {
+            if (e is CancellationException) throw e
+            Timber.e(e, "StorageRepository: No se pudo iniciar la subida de video")
+            trySend(UploadStatus.Error(e))
+            close()
+            awaitClose()
+            return@callbackFlow
+        }
 
         val progressListener = OnProgressListener<UploadTask.TaskSnapshot> { snapshot ->
             val percent = if (snapshot.totalByteCount > 0) {
@@ -93,24 +126,27 @@ class StorageRepository @Inject constructor(
                     Timber.d("StorageRepository: Video subido exitosamente: $downloadUrl")
                     trySend(UploadStatus.Success(downloadUrl.toString()))
                     close()
+                } catch (e: CancellationException) {
+                    throw e
                 } catch (e: Exception) {
                     Timber.e(e, "StorageRepository: Error obteniendo downloadUrl del video")
                     trySend(UploadStatus.Error(e))
-                    close(e)
+                    close()
                 }
             }
         }
 
         val failureListener = OnFailureListener { exception ->
-            // Una cancelación explícita (ver awaitClose) llega aquí como StorageException con
-            // ERROR_CANCELED: es un flujo normal, no un error real, así que no se loguea como tal.
+            // Una cancelación del UploadTask llega aquí como StorageException con
+            // ERROR_CANCELED: es un flujo normal, se emite Cancelled y no Error.
             if (exception is StorageException && exception.errorCode == StorageException.ERROR_CANCELED) {
                 Timber.d("StorageRepository: Subida de video cancelada")
+                trySend(UploadStatus.Cancelled)
             } else {
                 Timber.e(exception, "StorageRepository: Error subiendo video")
+                trySend(UploadStatus.Error(exception))
             }
-            trySend(UploadStatus.Error(exception))
-            close(exception)
+            close()
         }
 
         uploadTask.addOnProgressListener(progressListener)
@@ -127,6 +163,9 @@ class StorageRepository @Inject constructor(
             }
         }
     }
+        // Buffer ilimitado: un Progress nunca debe desplazar al estado terminal (con el
+        // buffer por defecto de 64 lleno, trySend fallaría y la UI quedaría en Uploading).
+        .buffer(Channel.UNLIMITED)
 
     /**
      * Borra el archivo de Storage al que apunta un download URL previamente emitido por
@@ -148,6 +187,8 @@ class StorageRepository @Inject constructor(
                 Timber.e(e, "StorageRepository: Error borrando archivo de Storage: $url")
                 Result.failure(e)
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Timber.e(e, "StorageRepository: Error borrando archivo de Storage: $url")
             Result.failure(e)

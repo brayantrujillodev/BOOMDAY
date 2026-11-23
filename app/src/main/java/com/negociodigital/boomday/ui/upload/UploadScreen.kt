@@ -11,6 +11,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.hilt.navigation.compose.hiltViewModel
 
 /**
@@ -122,7 +123,7 @@ fun UploadFlowScreen(
 
             is UploadState.Error -> {
                 UploadErrorScreen(
-                    message = state.message,
+                    message = stringResource(state.messageRes),
                     canRetryToReview = lastRecorded != null,
                     onRetry = { retryToReviewOrReset() },
                     onDiscard = { viewModel.resetState() }

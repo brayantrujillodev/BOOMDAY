@@ -3,9 +3,11 @@ package com.negociodigital.boomday.ui.upload
 import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.negociodigital.boomday.data.model.UploadException
 import com.negociodigital.boomday.data.model.UploadStatus
 import com.negociodigital.boomday.data.repository.UploadRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -13,6 +15,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import timber.log.Timber
 import java.io.File
+import java.util.UUID
 import javax.inject.Inject
 
 @HiltViewModel
@@ -25,11 +28,25 @@ class UploadViewModel @Inject constructor(
 
     private var uploadJob: Job? = null
 
+    // Grabación pendiente (revisión / subida / error / cancelado) y su id de documento.
+    // El id se fija en el primer confirmUpload y se reutiliza en cada reintento del MISMO
+    // video, de modo que Firestore recibe siempre set() sobre el mismo documento (sin
+    // duplicados). Se limpia al publicar, descartar o cambiar de video.
+    private var pendingUri: Uri? = null
+    private var pendingVideoId: String? = null
+
     /**
-     * Llamado por la UI al terminar de grabar (cámara) o al elegir un video de galería.
+     * Llamado por la UI al terminar de grabar (cámara), al elegir un video de galería, o
+     * al volver a revisión para reintentar tras un error/cancelación (mismo uri).
      */
     fun setRecordedVideo(uri: Uri, durationMs: Long) {
         Timber.d("UploadViewModel: Video listo para revisar: $uri (${durationMs}ms)")
+        val previous = pendingUri
+        if (previous != null && previous != uri) {
+            deleteCachedRecordingIfOwned(previous)
+            pendingVideoId = null
+        }
+        pendingUri = uri
         _uploadState.value = UploadState.Recorded(uri, durationMs)
     }
 
@@ -38,6 +55,7 @@ class UploadViewModel @Inject constructor(
      */
     fun discardRecording() {
         Timber.d("UploadViewModel: Descartando grabación")
+        clearPending(deleteFile = true)
         _uploadState.value = UploadState.Idle
     }
 
@@ -56,39 +74,65 @@ class UploadViewModel @Inject constructor(
             return
         }
 
+        val videoId = pendingVideoId ?: UUID.randomUUID().toString().also { pendingVideoId = it }
+
         // Transición síncrona: si el usuario hace doble tap antes de la primera emisión
         // real del Flow (hay un round-trip de red de por medio), el estado ya no es
         // Recorded y el guard de arriba, junto con este, evita una segunda subida.
         _uploadState.value = UploadState.Uploading(0)
 
         uploadJob = viewModelScope.launch {
-            uploadRepository.uploadVideoComplete(
-                videoUri = current.uri,
-                title = title,
-                description = description,
-                hashtags = hashtags
-            ).collect { status ->
-                _uploadState.value = when (status) {
-                    is UploadStatus.Progress -> UploadState.Uploading(status.percent)
-                    // En la emisión final del flow, downloadUrl contiene el videoId de Firestore (ver UploadRepository.uploadVideoComplete)
-                    is UploadStatus.Success -> {
-                        deleteCachedRecordingIfOwned(current.uri)
-                        UploadState.Success(videoId = status.downloadUrl)
-                    }
-                    is UploadStatus.Error -> UploadState.Error(
-                        message = status.throwable.message ?: "Error desconocido al subir el video"
-                    )
-                    is UploadStatus.Cancelled -> UploadState.Cancelled
+            try {
+                uploadRepository.uploadVideoComplete(
+                    videoUri = current.uri,
+                    title = title,
+                    description = description,
+                    hashtags = hashtags,
+                    videoId = videoId
+                ).collect { status -> handleStatus(status, current.uri) }
+
+                // El flow terminó: si por cualquier motivo no hubo estado terminal, no
+                // dejamos la UI en Uploading para siempre.
+                if (_uploadState.value is UploadState.Uploading) {
+                    Timber.e("UploadViewModel: el flow terminó sin estado terminal")
+                    _uploadState.value = UploadState.Error(uploadErrorMessageRes(UploadException.Incomplete()))
                 }
+            } catch (e: CancellationException) {
+                // Cancelación explícita (cancelUpload/onCleared): no es un error. El estado
+                // lo fija quien cancela.
+                throw e
+            } catch (e: Exception) {
+                Timber.e(e, "UploadViewModel: Excepción inesperada durante la subida")
+                _uploadState.value = UploadState.Error(uploadErrorMessageRes(e))
             }
+        }
+    }
+
+    private fun handleStatus(status: UploadStatus, uri: Uri) {
+        _uploadState.value = when (status) {
+            is UploadStatus.Progress -> UploadState.Uploading(status.percent)
+            // En la emisión final del flow, downloadUrl contiene el videoId de Firestore (ver UploadRepository.uploadVideoComplete)
+            is UploadStatus.Success -> {
+                clearPending(deleteFile = true)
+                UploadState.Success(videoId = status.downloadUrl)
+            }
+            // El archivo local se conserva en Error/Cancelled: la UI ofrece "Reintentar"
+            // (vuelve a revisión con el mismo uri). Se borra al descartar / resetState.
+            is UploadStatus.Error -> UploadState.Error(uploadErrorMessageRes(status.throwable))
+            is UploadStatus.Cancelled -> UploadState.Cancelled
         }
     }
 
     /**
      * Cancela la subida en curso. Al cancelar el Job, se cancela la colección del Flow de
      * StorageRepository.uploadVideoWithProgress, cuyo awaitClose cancela el UploadTask real.
+     * Solo actúa mientras se está subiendo: no pisa un estado terminal ya alcanzado.
      */
     fun cancelUpload() {
+        if (_uploadState.value !is UploadState.Uploading) {
+            Timber.w("UploadViewModel: cancelUpload ignorado, no hay subida en curso")
+            return
+        }
         Timber.d("UploadViewModel: Cancelando subida en curso")
         uploadJob?.cancel()
         uploadJob = null
@@ -96,22 +140,42 @@ class UploadViewModel @Inject constructor(
     }
 
     /**
-     * Vuelve a Idle para permitir reintentar tras un error o éxito.
+     * Vuelve a Idle (tras éxito o al descartar un error/cancelación) y limpia el archivo
+     * temporal pendiente. Para reintentar sin perder el video, la UI usa setRecordedVideo.
      */
     fun resetState() {
+        if (_uploadState.value is UploadState.Uploading) {
+            uploadJob?.cancel()
+            uploadJob = null
+        }
+        clearPending(deleteFile = true)
         _uploadState.value = UploadState.Idle
     }
 
+    override fun onCleared() {
+        // viewModelScope ya cancela la subida; solo limpiamos el temporal.
+        clearPending(deleteFile = true)
+        super.onCleared()
+    }
+
+    private fun clearPending(deleteFile: Boolean) {
+        val uri = pendingUri
+        pendingUri = null
+        pendingVideoId = null
+        if (deleteFile && uri != null) deleteCachedRecordingIfOwned(uri)
+    }
+
     /**
-     * Borra el archivo temporal de la grabación del cache tras una subida exitosa.
-     * Solo aplica a videos grabados con CameraX (uri con scheme "file", escritos en
-     * cacheDir por CameraCaptureScreen); un video importado de galería usa un content://
-     * uri que no nos pertenece y no debe borrarse.
+     * Borra el archivo temporal de una grabación de CameraX: solo scheme "file" y solo
+     * con el nombre que genera CameraCaptureScreen en cacheDir ("boomday_rec_*.mp4").
+     * Un video importado de galería usa content:// y nunca se borra.
      */
     private fun deleteCachedRecordingIfOwned(uri: Uri) {
         if (uri.scheme != "file") return
         val path = uri.path ?: return
-        val deleted = File(path).delete()
+        val file = File(path)
+        if (!file.name.startsWith("boomday_rec_") || file.extension != "mp4") return
+        val deleted = file.delete()
         Timber.d("UploadViewModel: Limpieza de cache de grabación (deleted=$deleted): $path")
     }
 }

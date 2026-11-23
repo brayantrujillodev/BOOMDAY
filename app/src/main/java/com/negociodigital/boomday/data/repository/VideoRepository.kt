@@ -4,6 +4,7 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
+import com.negociodigital.boomday.data.model.UploadException
 import com.negociodigital.boomday.data.model.Video
 import com.negociodigital.boomday.data.util.currentDayKeyBogota
 import kotlinx.coroutines.CancellationException
@@ -29,14 +30,48 @@ class VideoRepository @Inject constructor(
     /**
      * Guarda un video en Firestore
      */
-    suspend fun saveVideo(video: Video): Result<String> {
+    /**
+     * [videoId] opcional: si se pasa, el documento se escribe con ese id (set idempotente),
+     * de modo que reintentar la publicación del mismo video NO crea un documento duplicado.
+     * Si el doc ya existe: del mismo userId => failure([UploadException.AlreadyPublished]) que el
+     * llamador trata como éxito idempotente (sin set); de otro userId => failure([UploadException.IdConflict]).
+     */
+    suspend fun saveVideo(video: Video, videoId: String? = null): Result<String> {
         return try {
-            val docRef = videosCollection.document()
+            val docRef = if (videoId.isNullOrBlank()) videosCollection.document() else videosCollection.document(videoId)
             val videoWithId = video.copy(videoId = docRef.id)
+
+            // Reintento idempotente: si el id es explícito y el doc ya existe (confirmado o
+            // escritura pendiente en la caché local), un set nuevo sería un UPDATE que las
+            // reglas de dueño rechazan (solo title/description/hashtags/updatedAt).
+            if (!videoId.isNullOrBlank()) {
+                val existingOwner = try {
+                    val snap = docRef.get().await()
+                    if (snap.exists()) snap.getString("userId") ?: "" else null
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    // Sin red / sin caché: seguimos al set normal.
+                    Timber.w(e, "VideoRepository: no se pudo comprobar existencia de $videoId, se continúa al set")
+                    null
+                }
+                if (existingOwner != null) {
+                    return if (existingOwner == video.userId) {
+                        Timber.d("VideoRepository: $videoId ya existe del mismo usuario, éxito idempotente")
+                        Result.failure(UploadException.AlreadyPublished(docRef.id))
+                    } else {
+                        Timber.e("VideoRepository: $videoId existe y pertenece a otro usuario")
+                        Result.failure(UploadException.IdConflict(docRef.id))
+                    }
+                }
+            }
+
             docRef.set(videoWithId).await()
 
             Timber.d("VideoRepository: Video guardado exitosamente: ${docRef.id}")
             Result.success(docRef.id)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Exception) {
             Timber.e(e, "VideoRepository: Error guardando video")
             Result.failure(e)

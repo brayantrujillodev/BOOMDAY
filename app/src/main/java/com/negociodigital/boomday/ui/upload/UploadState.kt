@@ -1,6 +1,7 @@
 package com.negociodigital.boomday.ui.upload
 
 import android.net.Uri
+import androidx.annotation.StringRes
 
 /**
  * Estado de la pantalla de subida de video.
@@ -15,6 +16,7 @@ sealed interface UploadState {
     data class Recorded(val uri: Uri, val durationMs: Long) : UploadState
     data class Uploading(val progress: Int) : UploadState
     data class Success(val videoId: String) : UploadState
-    data class Error(val message: String) : UploadState
+    /** [messageRes]: string localizado en español, nunca el message crudo de una excepción. */
+    data class Error(@StringRes val messageRes: Int) : UploadState
     data object Cancelled : UploadState
 }

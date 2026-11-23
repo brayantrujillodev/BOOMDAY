@@ -17,8 +17,11 @@ import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import timber.log.Timber
 import javax.inject.Inject
+
+internal const val BLOCKED_LOAD_TIMEOUT_MS = 15_000L
 
 @HiltViewModel
 class FeedViewModel @Inject constructor(
@@ -60,8 +63,22 @@ class FeedViewModel @Inject constructor(
 
     private fun loadFeed() {
         feedJob = viewModelScope.launch {
-            auth.currentUser?.uid?.let { uid ->
-                blockedUserIds.value = userRepository.getBlockedUsers(uid)
+            val uid = auth.currentUser?.uid
+            if (uid != null) {
+                // Fail-closed: sin la lista de bloqueados no se muestra el feed (reintento = refreshFeed).
+                // withTimeoutOrNull: el timeout devuelve null; una cancelación real del scope se propaga.
+                val result = withTimeoutOrNull(BLOCKED_LOAD_TIMEOUT_MS) { userRepository.getBlockedUsers(uid) }
+                if (result == null) {
+                    Timber.e("FeedViewModel: Timeout obteniendo usuarios bloqueados")
+                    _feedState.value = FeedState.Error("Sin conexión")
+                    return@launch
+                }
+                val blocked = result.getOrElse { e ->
+                    Timber.e(e, "FeedViewModel: Error obteniendo usuarios bloqueados")
+                    _feedState.value = FeedState.Error(e.message ?: "Error al cargar el feed")
+                    return@launch
+                }
+                blockedUserIds.value = blocked
             }
             combine(videoRepository.getTodayVideos(), blockedUserIds) { videos, blocked ->
                 videos.filterNot { it.userId in blocked }
