@@ -7,8 +7,11 @@ service cloud.firestore {
     // app/google-services.json → storage_bucket), no una URL arbitraria de otro dominio.
     // Un cliente modificado no puede simplemente apuntar videoUrl/thumbnailUrl a
     // cualquier host y hacer que el Feed la reproduzca en autoplay.
-    function isValidStorageUrl(url) {
-      return url.matches('^https://firebasestorage\\.googleapis\\.com/v0/b/boomday-85bef\\.firebasestorage\\.app/o/.*$');
+    // La URL debe además apuntar a la carpeta del propio usuario (<folder>%2F<uid>%2F...) para
+    // que las Cloud Functions (borran con permisos Admin) nunca actúen sobre blobs ajenos.
+    // Bucket viejo y nuevo permitidos durante la migración a boomday-e2308; quitar el viejo después.
+    function isValidStorageUrl(url, folder) {
+      return url.matches('^https://firebasestorage\\.googleapis\\.com/v0/b/(boomday-85bef|boomday-e2308)\\.(firebasestorage\\.app|appspot\\.com)/o/' + folder + '%2F' + request.auth.uid + '%2F[^/]+$');
     }
 
     match /videos/{videoId} {
@@ -26,12 +29,15 @@ service cloud.firestore {
                     && request.resource.data.title.size() <= 100
                     && request.resource.data.description.size() <= 500
                     && request.resource.data.hashtags.size() <= 30
+                    && request.resource.data.createdAt is int
+                    && request.resource.data.createdAt > request.time.toMillis() - 600000
+                    && request.resource.data.createdAt < request.time.toMillis() + 600000
                     && request.resource.data.dayKey is string
                     && request.resource.data.dayKey.size() == 10
-                    && isValidStorageUrl(request.resource.data.videoUrl)
+                    && isValidStorageUrl(request.resource.data.videoUrl, 'videos')
                     && (
                          request.resource.data.thumbnailUrl == ''
-                         || isValidStorageUrl(request.resource.data.thumbnailUrl)
+                         || isValidStorageUrl(request.resource.data.thumbnailUrl, 'thumbnails')
                        );
 
       // El dueño solo puede editar los campos de contenido (título/descripción/hashtags);
@@ -64,7 +70,9 @@ service cloud.firestore {
       allow delete: if request.auth != null && request.auth.uid == resource.data.userId;
 
       match /views/{userId} {
-        allow read: if request.auth != null;
+        // Solo el propio uid lee su doc de dedupe (VideoRepository.incrementViews solo hace
+        // transaction.get sobre views/{su uid}); evita enumerar quién vio cada video.
+        allow read: if request.auth != null && request.auth.uid == userId;
         allow create: if request.auth != null && request.auth.uid == userId;
         allow update, delete: if false;
       }
@@ -86,6 +94,8 @@ service cloud.firestore {
                     && request.auth.uid == request.resource.data.reporterId
                     && request.resource.data.reportedUserId is string
                     && request.resource.data.reportedUserId.size() > 0
+                    && request.resource.data.reportedVideoId is string
+                    && request.resource.data.createdAt is int
                     && request.resource.data.reason is string
                     && request.resource.data.reason.size() > 0
                     && request.resource.data.reason.size() <= 300;
