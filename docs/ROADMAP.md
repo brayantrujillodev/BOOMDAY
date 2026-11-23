@@ -36,7 +36,7 @@ cd functions && npm install && cd ..
 firebase deploy --only functions --project boomday-e2308
 ```
 
-Queda pendiente, por separado, la **validación server-side de duración y content-type real** (hoy solo se valida `content-type` declarado por el cliente y tamaño en `storage.rules` — ninguna regla puede inspeccionar el contenido real del archivo). No se implementó en esta pasada: requiere `ffprobe` o similar corriendo en una función activada por subida (`onObjectFinalized`), es una pieza separada de la de expiración programada.
+**Validación server-side de content-type real, tamaño y duración — implementada, sin desplegar**: `functions/src/index.ts` — `validateUploadedVideo` (`onObjectFinalized`, v2, región por defecto igual que `cleanupExpiredVideos`) sobre `videos/{userId}/{archivo}`. Verifica content-type de la metadata de Storage, magic bytes (`ftyp` MP4/MOV, EBML WebM), tamaño (< 100 MB) y, para MP4, la duración leyendo el átomo `mvhd` con lecturas por rango (sin ffprobe ni binarios nativos); rechaza > 60 s (+1 s de tolerancia). Si es inválido borra el blob y el doc de Firestore asociado si ya existe. Compila (`npm run build`); se despliega junto con las demás funciones (`firebase deploy --only functions`). Limitaciones conocidas: WebM no verifica duración; como el doc se crea después del blob, un doc que apunte a un blob ya rechazado queda huérfano hasta que `cleanupExpiredVideos` lo borra a las 24h.
 
 ## 2. ~~Reporte y bloqueo de usuarios~~ — implementado, reglas desplegadas
 
@@ -63,8 +63,8 @@ Hoy es 100% mock: trending, categorías y usuarios sugeridos son datos hardcodea
 Corren en paralelo al código, no después:
 
 - **Closed testing**: mínimo 12 testers activos durante 14 días consecutivos antes de poder solicitar producción — es el camino crítico de tiempo, conviene arrancarlo temprano aunque el producto no esté 100% terminado. Pendiente.
-- **Política de privacidad** (URL pública, requisito de Play Console). Pendiente.
-- **Formulario de seguridad de datos** (Data Safety) — declarar qué datos recolecta la app (email, videos, ubicación si se llega a usar para el ranking local) y con qué propósito. Pendiente.
+- **Política de privacidad** (URL pública, requisito de Play Console) — **redactada** en `docs/PRIVACY_POLICY.md`. **Falta solo hospedarla** en una URL pública (p. ej. GitHub Pages / Firebase Hosting) y confirmar el correo de contacto (hoy placeholder `sadtiger69@gmail.com`).
+- **Formulario de seguridad de datos** (Data Safety) — **respuestas redactadas** en `docs/DATA_SAFETY.md`, mapeadas a los datos reales (email, nombre, UID, videos, miniaturas/foto, audio, vistas, reportes, bloqueos; sin ubicación ni analítica). **Falta solo** cargarlas en Play Console y apuntar el campo de URL de eliminación de cuenta a la política hospedada.
 - ~~**Eliminación de cuenta**~~ — **implementado (2026-09-28)**: `DeleteAccountUseCase` borra los videos del usuario (Firestore + Storage), el documento de perfil y la cuenta de Firebase Auth, con reautenticación automática vía Google si Firebase la exige por sesión no reciente. UI en `ProfileScreen` (botón "Eliminar cuenta" con confirmación). Ver `domain/usecase/DeleteAccountUseCase.kt`.
 
 ## 6. Deuda técnica conocida
@@ -72,7 +72,7 @@ Corren en paralelo al código, no después:
 Ya identificada en revisiones de código anteriores. Lo ya resuelto se marca explícitamente para no reabrirlo sin motivo.
 
 **Pendiente:**
-- Validación server-side real de content-type y duración de video (depende de la Cloud Function del punto 1).
+- Desplegar `validateUploadedVideo` (implementada, ver punto 1) junto con `cleanupExpiredVideos`, tras resolver Blaze/Storage (punto 0).
 
 **Ya resuelto (no reabrir sin evidencia nueva):**
 - ~~Query inválida de `getTopVideos()`~~ — corregido con `dayKey` (ver `docs/ARCHITECTURE.md`).
