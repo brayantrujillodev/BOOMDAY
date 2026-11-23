@@ -1,0 +1,3 @@
+# Copias de reglas generadas por start.* y logs de emuladores
+.generated/
+*.log

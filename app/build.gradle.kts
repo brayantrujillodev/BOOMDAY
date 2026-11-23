@@ -29,6 +29,18 @@ android {
                 "proguard-rules.pro"
             )
         }
+
+        // Build type SOLO para pruebas locales contra Firebase Emulator Suite.
+        // Aislamiento por construccion: usa app/src/local/google-services.json (project
+        // "demo-boomday", ficticio) y su propio source set con LocalEnvironment real.
+        // debug y release incluyen un LocalEnvironment NO-OP. No existe "localRelease".
+        create("local") {
+            initWith(getByName("debug"))
+            applicationIdSuffix = ".local"
+            matchingFallbacks += listOf("debug")
+            isDebuggable = true
+            isMinifyEnabled = false
+        }
     }
 
     compileOptions {

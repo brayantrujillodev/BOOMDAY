@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Overlay SOLO del build type "local". No afecta debug ni release. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <application android:networkSecurityConfig="@xml/network_security_config">
+
+        <!-- Login de pruebas contra Auth Emulator. exported SOLO aqui (para adb). -->
+        <activity
+            android:name="com.negociodigital.boomday.debuglocal.LocalTestSignInActivity"
+            android:exported="true" />
+
+    </application>
+
+</manifest>

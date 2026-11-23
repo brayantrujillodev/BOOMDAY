@@ -1,0 +1,37 @@
+{
+  "project_info": {
+    "project_number": "000000000001",
+    "project_id": "demo-boomday",
+    "storage_bucket": "demo-boomday.appspot.com"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:000000000001:android:0000000000000000000001",
+        "android_client_info": {
+          "package_name": "com.negociodigital.boomday.local"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "000000000001-fakefakefakefakefakefakefakefake.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        { "current_key": "FAKE-local-emulator-key-not-real" }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "000000000001-fakefakefakefakefakefakefakefake.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
