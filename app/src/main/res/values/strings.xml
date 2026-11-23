@@ -110,4 +110,21 @@
     <string name="ranking_empty_subtitle">Sé de los primeros en ver y compartir videos hoy en Neiva.</string>
     <string name="ranking_error_title">No pudimos cargar el ranking</string>
     <string name="ranking_error_subtitle">Vuelve a intentarlo en un momento.</string>
+
+    <!-- Explore -->
+    <string name="explore_title">Explorar</string>
+    <string name="explore_search_placeholder">Buscar videos o usuarios</string>
+    <string name="explore_clear_search_cd">Borrar búsqueda</string>
+    <string name="explore_trending_title">Trending</string>
+    <string name="explore_trending_subtitle">Lo más visto hoy</string>
+    <string name="explore_recent_title">Recientes</string>
+    <string name="explore_recent_subtitle">Lo último que se ha publicado</string>
+    <string name="explore_empty_title">No encontramos videos</string>
+    <string name="explore_empty_subtitle">Prueba con otra búsqueda o vuelve más tarde.</string>
+    <string name="explore_error_title">No pudimos cargar Explorar</string>
+    <string name="explore_partial_error_message">No pudimos actualizar los resultados</string>
+    <string name="explore_retry_button">Reintentar</string>
+    <string name="explore_loading_cd">Cargando</string>
+    <string name="explore_thumbnail_cd">Miniatura del video de %1$s</string>
+    <string name="explore_views_format">%1$s vistas</string>
 </resources>

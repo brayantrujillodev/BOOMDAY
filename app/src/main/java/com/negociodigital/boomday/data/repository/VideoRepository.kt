@@ -46,12 +46,13 @@ class VideoRepository @Inject constructor(
     /**
      * Obtiene los videos de las últimas 24 horas
      */
-    fun getTodayVideos(): Flow<List<Video>> = callbackFlow {
+    fun getTodayVideos(limit: Int? = null): Flow<List<Video>> = callbackFlow {
         val yesterday = System.currentTimeMillis() - (24 * 60 * 60 * 1000)
 
-        val listener = videosCollection
+        val baseQuery = videosCollection
             .whereGreaterThan("createdAt", yesterday)
             .orderBy("createdAt", Query.Direction.DESCENDING)
+        val listener = (if (limit != null) baseQuery.limit(limit.toLong()) else baseQuery)
             .addSnapshotListener { snapshot, error ->
                 if (error != null) {
                     Timber.e(error, "VideoRepository: Error obteniendo videos de hoy")
