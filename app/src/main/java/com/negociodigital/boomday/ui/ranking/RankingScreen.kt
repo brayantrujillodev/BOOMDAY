@@ -19,6 +19,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Star
+import androidx.annotation.StringRes
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -73,7 +75,10 @@ fun RankingScreen(viewModel: RankingViewModel = hiltViewModel()) {
             RankingState.Loading -> RankingLoadingState()
             is RankingState.Success -> RankingList(ranking = state.ranking)
             RankingState.Empty -> RankingEmptyState()
-            is RankingState.Error -> RankingErrorState(message = state.message)
+            is RankingState.Error -> RankingErrorState(
+                messageRes = state.messageRes,
+                onRetry = viewModel::retry
+            )
         }
     }
 }
@@ -316,14 +321,8 @@ private fun RankingEmptyState() {
     }
 }
 
-/**
- * Nota: [RankingViewModel] no expone hoy una función pública de refresh/retry en su
- * contrato (a diferencia de FeedViewModel.refreshFeed()), así que este estado no ofrece
- * un botón "Reintentar" — solo el mensaje. Si se requiere reintentar manualmente, hace
- * falta agregar esa función al ViewModel primero.
- */
 @Composable
-private fun RankingErrorState(message: String) {
+private fun RankingErrorState(@StringRes messageRes: Int, onRetry: () -> Unit) {
     Box(
         modifier = Modifier.fillMaxSize(),
         contentAlignment = Alignment.Center
@@ -342,7 +341,7 @@ private fun RankingErrorState(message: String) {
             )
             Spacer(modifier = Modifier.height(8.dp))
             Text(
-                text = message,
+                text = stringResource(messageRes),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center
@@ -354,6 +353,10 @@ private fun RankingErrorState(message: String) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center
             )
+            Spacer(modifier = Modifier.height(16.dp))
+            Button(onClick = onRetry) {
+                Text(stringResource(R.string.ranking_retry_button))
+            }
         }
     }
 }

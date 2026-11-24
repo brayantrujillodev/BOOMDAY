@@ -118,6 +118,9 @@
     <string name="ranking_empty_subtitle">Sé de los primeros en ver y compartir videos hoy en Neiva.</string>
     <string name="ranking_error_title">No pudimos cargar el ranking</string>
     <string name="ranking_error_subtitle">Vuelve a intentarlo en un momento.</string>
+    <string name="ranking_error_offline">Sin conexión. Revisa tu internet.</string>
+    <string name="ranking_error_generic">Ocurrió un error al cargar el ranking.</string>
+    <string name="ranking_retry_button">Reintentar</string>
 
     <!-- Explore -->
     <string name="explore_title">Explorar</string>

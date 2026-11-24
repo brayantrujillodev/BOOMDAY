@@ -1,5 +1,6 @@
 package com.negociodigital.boomday.ui.ranking
 
+import androidx.annotation.StringRes
 import com.negociodigital.boomday.data.model.Video
 
 /**
@@ -13,5 +14,6 @@ sealed interface RankingState {
     data object Loading : RankingState
     data class Success(val ranking: List<RankedVideo>) : RankingState
     data object Empty : RankingState
-    data class Error(val message: String) : RankingState
+    /** [messageRes] es un string resource en español (nunca el mensaje crudo del SDK). */
+    data class Error(@StringRes val messageRes: Int) : RankingState
 }
