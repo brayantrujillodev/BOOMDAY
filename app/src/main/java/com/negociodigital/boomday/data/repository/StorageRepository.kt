@@ -14,6 +14,10 @@ import com.google.firebase.storage.UploadTask
 import com.negociodigital.boomday.data.model.UploadException
 import com.negociodigital.boomday.data.model.UploadStatus
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
@@ -44,6 +48,69 @@ internal fun videoMetadata(resolvedType: String?): StorageMetadata =
 
 internal fun thumbnailMetadata(): StorageMetadata =
     StorageMetadata.Builder().setContentType(THUMBNAIL_CONTENT_TYPE).build()
+
+/** Sin avance de bytesTransferred durante este tiempo la subida se considera atascada (sin red). */
+internal const val DEFAULT_STALL_TIMEOUT_MS = 45_000L
+
+/**
+ * Watchdog de INACTIVIDAD de progreso (no timeout global). Mantiene el maximo de bytes
+ * transferidos; el contador solo se reinicia cuando ese maximo AUMENTA, de modo que eventos
+ * repetidos con los mismos bytes (o 0 bytes desde el inicio) no lo reinician. Usa delay() en
+ * [scope], asi que funciona con tiempo virtual de kotlinx-coroutines-test.
+ */
+internal class StallWatchdog(
+    private val scope: CoroutineScope,
+    private val stallTimeoutMs: Long,
+    private val onStall: () -> Unit
+) {
+    private var maxBytes = 0L
+    private var job: Job? = null
+    private var stopped = false
+
+    @Synchronized
+    fun start() {
+        if (stopped) return
+        schedule()
+    }
+
+    @Synchronized
+    fun onProgress(bytesTransferred: Long) {
+        if (stopped) return
+        if (bytesTransferred > maxBytes) {
+            maxBytes = bytesTransferred
+            schedule()
+        }
+    }
+
+    @Synchronized
+    fun stop() {
+        stopped = true
+        job?.cancel()
+        job = null
+    }
+
+    private fun schedule() {
+        job?.cancel()
+        job = scope.launch {
+            delay(stallTimeoutMs)
+            onStall()
+        }
+    }
+}
+
+private val VIDEO_PATH_REGEX = Regex("^videos/[^/]+/[^/]+$")
+
+/** Extrae "videos/{uid}/{archivo}" de un download URL (".../o/videos%2Fuid%2Ffile?alt=..."); null si no encaja. */
+internal fun storagePathFromDownloadUrl(url: String): String? {
+    val encoded = url.substringAfter("/o/", "").substringBefore('?')
+    if (encoded.isEmpty()) return null
+    val path = try {
+        java.net.URLDecoder.decode(encoded, "UTF-8")
+    } catch (e: IllegalArgumentException) {
+        return null
+    }
+    return path.takeIf { VIDEO_PATH_REGEX.matches(it) && !it.contains("..") }
+}
 
 @Singleton
 class StorageRepository @Inject constructor(
@@ -99,7 +166,11 @@ class StorageRepository @Inject constructor(
      * Misma ruta de destino que [uploadVideo]. Pensado para UploadRepository,
      * que puede cancelar la corrutina que colecta este Flow para abortar la subida.
      */
-    fun uploadVideoWithProgress(videoUri: Uri, contentType: String? = null): Flow<UploadStatus> = callbackFlow {
+    fun uploadVideoWithProgress(
+        videoUri: Uri,
+        contentType: String? = null,
+        stallTimeoutMs: Long = DEFAULT_STALL_TIMEOUT_MS
+    ): Flow<UploadStatus> = callbackFlow {
         // Contrato: este flow NUNCA termina con excepción hacia el colector. Todo fallo
         // (usuario nulo, error de Storage, downloadUrl) se emite como UploadStatus.Error y
         // el canal se cierra SIN causa (close()), porque close(cause) relanzaría la
@@ -128,7 +199,35 @@ class StorageRepository @Inject constructor(
             return@callbackFlow
         }
 
+        // Decision terminal ATOMICA: exactamente una fuente (exito, fallo/cancelacion del SDK o
+        // watchdog) puede reclamar el estado terminal; las demas se ignoran. Evita que un
+        // Timeout y un Success/Cancelled compitan cuando coinciden en el tiempo.
+        val terminalClaimed = AtomicBoolean(false)
+        // true cuando el watchdog gano la decision: el ERROR_CANCELED resultante no es una
+        // cancelacion del usuario y debe ignorarse (el estado terminal ya es Error).
+        val stalled = AtomicBoolean(false)
+        val watchdog = StallWatchdog(this, stallTimeoutMs) {
+            // Si la transferencia ya termino (el callback de exito esta en camino), no se
+            // declara timeout: se deja que el listener de exito reclame el estado.
+            if (uploadTask.isComplete) return@StallWatchdog
+            if (!terminalClaimed.compareAndSet(false, true)) return@StallWatchdog
+            // Orden importante: flag ANTES de cancelar, para que el failureListener lo vea.
+            stalled.set(true)
+            Timber.w("StorageRepository: subida sin progreso durante ${stallTimeoutMs}ms; se cancela")
+            try {
+                uploadTask.cancel()
+            } catch (e: Exception) {
+                Timber.e(e, "StorageRepository: error cancelando subida atascada")
+            }
+            trySend(UploadStatus.Error(UploadException.Timeout()))
+            close()
+        }
+
         val progressListener = OnProgressListener<UploadTask.TaskSnapshot> { snapshot ->
+            // Tras el corte del watchdog el SDK aun entrega un snapshot (task.cancel()); no debe
+            // llegar un Progress despues del Error(Timeout) ya emitido.
+            if (terminalClaimed.get()) return@OnProgressListener
+            watchdog.onProgress(snapshot.bytesTransferred)
             val percent = if (snapshot.totalByteCount > 0) {
                 (100 * snapshot.bytesTransferred / snapshot.totalByteCount).toInt()
             } else {
@@ -139,6 +238,8 @@ class StorageRepository @Inject constructor(
         }
 
         val successListener = OnSuccessListener<UploadTask.TaskSnapshot> {
+            if (!terminalClaimed.compareAndSet(false, true)) return@OnSuccessListener
+            watchdog.stop()
             // downloadUrl es async y no hay variante suspend fuera de una corrutina; se resuelve dentro del scope del callbackFlow
             launch {
                 try {
@@ -157,6 +258,13 @@ class StorageRepository @Inject constructor(
         }
 
         val failureListener = OnFailureListener { exception ->
+            if (!terminalClaimed.compareAndSet(false, true)) {
+                // Cancelacion provocada por el watchdog (o fallo tras un exito ya reclamado):
+                // el estado terminal ya fue decidido.
+                Timber.d("StorageRepository: ignorando fallo posterior a un estado terminal (stalled=${stalled.get()})")
+                return@OnFailureListener
+            }
+            watchdog.stop()
             // Una cancelación del UploadTask llega aquí como StorageException con
             // ERROR_CANCELED: es un flujo normal, se emite Cancelled y no Error.
             if (exception is StorageException && exception.errorCode == StorageException.ERROR_CANCELED) {
@@ -172,8 +280,11 @@ class StorageRepository @Inject constructor(
         uploadTask.addOnProgressListener(progressListener)
         uploadTask.addOnSuccessListener(successListener)
         uploadTask.addOnFailureListener(failureListener)
+        // Arranca con la subida: cubre tambien "0 bytes desde el inicio" (sin red).
+        watchdog.start()
 
         awaitClose {
+            watchdog.stop()
             uploadTask.removeOnProgressListener(progressListener)
             uploadTask.removeOnSuccessListener(successListener)
             uploadTask.removeOnFailureListener(failureListener)
@@ -198,7 +309,15 @@ class StorageRepository @Inject constructor(
         if (url.isBlank()) return Result.success(Unit)
 
         return try {
-            storage.getReferenceFromUrl(url).delete().await()
+            val ref = try {
+                storage.getReferenceFromUrl(url)
+            } catch (e: IllegalArgumentException) {
+                // URL con host/bucket que el SDK no reconoce (p. ej. emulador): se intenta por path.
+                val path = storagePathFromDownloadUrl(url) ?: throw e
+                Timber.w("StorageRepository: getReferenceFromUrl fallo; borrando por path $path")
+                storage.reference.child(path)
+            }
+            ref.delete().await()
             Result.success(Unit)
         } catch (e: StorageException) {
             if (e.errorCode == StorageException.ERROR_OBJECT_NOT_FOUND) {

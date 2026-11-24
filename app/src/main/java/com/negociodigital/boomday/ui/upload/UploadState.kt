@@ -13,7 +13,17 @@ import androidx.annotation.StringRes
  */
 sealed interface UploadState {
     data object Idle : UploadState
-    data class Recorded(val uri: Uri, val durationMs: Long) : UploadState
+    /**
+     * [title], [description] y [hashtags] son el borrador del formulario: vacios en un video
+     * nuevo; rellenos al volver a revision para reintentar tras un Error/Cancelled.
+     */
+    data class Recorded(
+        val uri: Uri,
+        val durationMs: Long,
+        val title: String = "",
+        val description: String = "",
+        val hashtags: List<String> = emptyList()
+    ) : UploadState
     data class Uploading(val progress: Int) : UploadState
     data class Success(val videoId: String) : UploadState
     /** [messageRes]: string localizado en español, nunca el message crudo de una excepción. */

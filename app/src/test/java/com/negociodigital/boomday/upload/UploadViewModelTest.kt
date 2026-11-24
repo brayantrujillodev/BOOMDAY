@@ -72,6 +72,14 @@ class UploadViewModelTest {
     }
 
     @Test
+    fun lateProgressAfterTimeoutErrorDoesNotOverwriteTerminalState() {
+        states(UploadStatus.Progress(23), UploadStatus.Error(UploadException.Timeout()), UploadStatus.Progress(23))
+        start()
+        val s = vm.uploadState.value as UploadState.Error
+        assertEquals(R.string.upload_error_timeout, s.messageRes)
+    }
+
+    @Test
     fun userNotLoggedInMapsToSpecificMessage() {
         states(UploadStatus.Error(UploadException.NotLoggedIn()))
         start()
@@ -173,6 +181,56 @@ class UploadViewModelTest {
         assertTrue("Se conserva para Reintentar", f.exists())
         vm.resetState()
         assertFalse("Descartar lo borra", f.exists())
+    }
+
+    @Test
+    fun timeoutEndsInErrorAndRetryRestoresFormDraftAndUriWithoutDeletingFile() {
+        val f = File.createTempFile("boomday_rec_", ".mp4")
+        val ids = mutableListOf<String?>()
+        val idSlot = slot<String?>()
+        every { repo.uploadVideoComplete(any(), any(), any(), any(), captureNullable(idSlot)) } answers {
+            ids += idSlot.captured
+            flow {
+                emit(UploadStatus.Progress(0))
+                emit(UploadStatus.Error(UploadException.Timeout()))
+            }
+        }
+        try {
+            val uri = fileUri(f)
+            vm.setRecordedVideo(uri, 5000)
+            vm.confirmUpload("Mi titulo", "Mi desc", listOf("a", "b"))
+            val s = vm.uploadState.value as UploadState.Error
+            assertEquals(R.string.upload_error_timeout, s.messageRes)
+            assertTrue("El temporal no se borra tras timeout", f.exists())
+
+            vm.setRecordedVideo(uri, 5000) // "Reintentar"
+            val rec = vm.uploadState.value as UploadState.Recorded
+            assertEquals(uri, rec.uri)
+            assertEquals("Mi titulo", rec.title)
+            assertEquals("Mi desc", rec.description)
+            assertEquals(listOf("a", "b"), rec.hashtags)
+
+            vm.confirmUpload(rec.title, rec.description, rec.hashtags)
+            assertEquals(ids[0], ids[1]) // mismo videoId: sin duplicados
+            assertTrue(f.exists())
+
+            vm.resetState() // descartar borra y limpia el borrador
+            assertFalse(f.exists())
+            vm.setRecordedVideo(contentUri("z"), 5000)
+            assertEquals("", (vm.uploadState.value as UploadState.Recorded).title)
+        } finally {
+            f.delete()
+        }
+    }
+
+    @Test
+    fun newVideoDoesNotInheritPreviousDraft() {
+        states(UploadStatus.Error(IOException("x")))
+        start()
+        vm.setRecordedVideo(contentUri("otro"), 5000)
+        val rec = vm.uploadState.value as UploadState.Recorded
+        assertEquals("", rec.title)
+        assertTrue(rec.hashtags.isEmpty())
     }
 
     @Test

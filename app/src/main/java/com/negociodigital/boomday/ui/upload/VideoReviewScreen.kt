@@ -73,9 +73,10 @@ internal fun VideoReviewScreen(
         onDispose { player.release() }
     }
 
-    var title by remember { mutableStateOf("") }
-    var description by remember { mutableStateOf("") }
-    var hashtagsInput by remember { mutableStateOf("") }
+    // Prellenado con el borrador del ViewModel (vacio en un video nuevo; relleno al reintentar).
+    var title by remember { mutableStateOf(recorded.title) }
+    var description by remember { mutableStateOf(recorded.description) }
+    var hashtagsInput by remember { mutableStateOf(recorded.hashtags.joinToString(" ")) }
 
     val durationSeconds = (recorded.durationMs / 1000L).toInt()
     val isTooShort = recorded.durationMs < UploadLimits.MIN_DURATION_MS

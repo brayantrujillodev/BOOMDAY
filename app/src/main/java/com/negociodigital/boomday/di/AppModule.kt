@@ -33,7 +33,9 @@ object AppModule {
     @Provides
     @Singleton
     fun provideFirebaseStorage(): FirebaseStorage {
-        return Firebase.storage
+        // Defensa en profundidad: el SDK reintenta subidas hasta 10 min por defecto. El
+        // watchdog de StorageRepository corta antes (45 s sin progreso); esto acota el resto.
+        return Firebase.storage.apply { maxUploadRetryTimeMillis = 120_000L }
     }
 
     // ==================== REPOSITORIES ====================

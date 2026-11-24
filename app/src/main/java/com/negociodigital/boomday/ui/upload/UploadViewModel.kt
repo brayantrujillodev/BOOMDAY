@@ -35,6 +35,17 @@ class UploadViewModel @Inject constructor(
     private var pendingUri: Uri? = null
     private var pendingVideoId: String? = null
 
+    // Borrador del formulario del ultimo confirmUpload, para prellenar al reintentar.
+    private var draftTitle: String = ""
+    private var draftDescription: String = ""
+    private var draftHashtags: List<String> = emptyList()
+
+    private fun clearDraft() {
+        draftTitle = ""
+        draftDescription = ""
+        draftHashtags = emptyList()
+    }
+
     /**
      * Llamado por la UI al terminar de grabar (cámara), al elegir un video de galería, o
      * al volver a revisión para reintentar tras un error/cancelación (mismo uri).
@@ -45,9 +56,10 @@ class UploadViewModel @Inject constructor(
         if (previous != null && previous != uri) {
             deleteCachedRecordingIfOwned(previous)
             pendingVideoId = null
+            clearDraft()
         }
         pendingUri = uri
-        _uploadState.value = UploadState.Recorded(uri, durationMs)
+        _uploadState.value = UploadState.Recorded(uri, durationMs, draftTitle, draftDescription, draftHashtags)
     }
 
     /**
@@ -75,6 +87,9 @@ class UploadViewModel @Inject constructor(
         }
 
         val videoId = pendingVideoId ?: UUID.randomUUID().toString().also { pendingVideoId = it }
+        draftTitle = title
+        draftDescription = description
+        draftHashtags = hashtags
 
         // Transición síncrona: si el usuario hace doble tap antes de la primera emisión
         // real del Flow (hay un round-trip de red de por medio), el estado ya no es
@@ -109,6 +124,9 @@ class UploadViewModel @Inject constructor(
     }
 
     private fun handleStatus(status: UploadStatus, uri: Uri) {
+        // Un Progress tardio (p. ej. snapshot posterior a cancel()) nunca debe pisar un estado
+        // terminal (Error/Cancelled/Success): dejaria la UI en Uploading y luego en error generico.
+        if (status is UploadStatus.Progress && _uploadState.value !is UploadState.Uploading) return
         _uploadState.value = when (status) {
             is UploadStatus.Progress -> UploadState.Uploading(status.percent)
             // En la emisión final del flow, downloadUrl contiene el videoId de Firestore (ver UploadRepository.uploadVideoComplete)
@@ -162,6 +180,7 @@ class UploadViewModel @Inject constructor(
         val uri = pendingUri
         pendingUri = null
         pendingVideoId = null
+        clearDraft()
         if (deleteFile && uri != null) deleteCachedRecordingIfOwned(uri)
     }
 
