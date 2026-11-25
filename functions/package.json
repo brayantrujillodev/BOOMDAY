@@ -8,7 +8,8 @@
   "scripts": {
     "build": "tsc",
     "build:watch": "tsc --watch",
-    "deploy": "firebase deploy --only functions"
+    "deploy": "firebase deploy --only functions",
+    "test": "tsc && node --test lib/orphans.test.js lib/moderation.test.js"
   },
   "dependencies": {
     "firebase-admin": "^12.6.0",

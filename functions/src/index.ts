@@ -2,6 +2,15 @@ import { onSchedule } from "firebase-functions/v2/scheduler";
 import { onObjectFinalized } from "firebase-functions/v2/storage";
 import { logger } from "firebase-functions";
 import * as admin from "firebase-admin";
+import { BlobInfo, BlobKind, OrphanDeps, configFromEnv, extractStoragePath as extractPathExact, runOrphanCleanup } from "./orphans";
+import { enforceUploadQuota, quotaFromEnv } from "./quota";
+import { onDocumentCreated } from "firebase-functions/v2/firestore";
+import { onCall, HttpsError } from "firebase-functions/v2/https";
+import {
+  EvidenceDeps, GateDeps, ModerationError, PurgeCandidate, ReportDoc,
+  evidenceGateForVideo, handleNewReport, preserveEvidence, purgeConfigFromEnv, removeReportedVideo,
+  reportLimitFromEnv, runEvidencePurge, EVIDENCE_ROOT
+} from "./moderation";
 
 admin.initializeApp();
 
@@ -40,7 +49,8 @@ async function deleteStorageObjectIfPresent(
 
   const path = extractStoragePath(downloadUrl);
   if (!path) {
-    logger.warn(`cleanupExpiredVideos: no se pudo extraer el path de Storage de: ${downloadUrl}`);
+    // No se loguea la URL completa: contiene el token de descarga.
+    logger.warn(`cleanupExpiredVideos: no se pudo extraer el path de Storage (url de ${downloadUrl.length} caracteres)`);
     return;
   }
   if (!path.startsWith(allowedPrefix) || path.includes("..")) {
@@ -81,12 +91,14 @@ export const cleanupExpiredVideos = onSchedule(
     const startedAt = Date.now();
     const seen = new Set<string>();
     let deleted = 0;
+    let held = 0;
 
     // Tandas acotadas: evita cargar toda la colección en memoria y respeta el timeout.
     while (Date.now() - startedAt < CLEANUP_TIME_BUDGET_MS) {
       const snapshot = await db
         .collection("videos")
         .where("createdAt", "<", cutoff)
+        .select("videoUrl", "thumbnailUrl", "userId", "createdAt") // solo lo que se usa: menos ancho de banda
         .limit(CLEANUP_BATCH_SIZE)
         .get();
 
@@ -98,6 +110,13 @@ export const cleanupExpiredVideos = onSchedule(
         seen.add(doc.id);
         const video = doc.data();
         try {
+          // B3: un video con reporte abierto no se borra hasta preservar su evidencia.
+          const gate = await evidenceGateForVideo(gateDeps, doc.id, Number(video.createdAt) || 0, Date.now());
+          if (!gate.allow) {
+            logger.warn(`cleanupExpiredVideos: video ${doc.id} retenido (${gate.reason})`);
+            held++;
+            continue;
+          }
           await Promise.all([
             deleteStorageObjectIfPresent(video.videoUrl, `videos/${video.userId}/`),
             deleteStorageObjectIfPresent(video.thumbnailUrl, `thumbnails/${video.userId}/`)
@@ -113,9 +132,139 @@ export const cleanupExpiredVideos = onSchedule(
       if (snapshot.size < CLEANUP_BATCH_SIZE) break;
     }
 
-    logger.info(`cleanupExpiredVideos: ${deleted} videos vencidos borrados`);
+    logger.info(`cleanupExpiredVideos: ${deleted} videos vencidos borrados, ${held} retenidos por reporte abierto`);
   }
 );
+
+// ---------------------------------------------------------------------------
+// Adaptadores reales (Admin SDK) para la lógica pura de orphans.ts / quota.ts
+// ---------------------------------------------------------------------------
+
+function dayKeyUtc(ms: number): string {
+  return new Date(ms).toISOString().slice(0, 10);
+}
+
+/** Contadores diarios en ops_metrics/{yyyy-MM-dd} (colección solo-servidor: las reglas deniegan a clientes). */
+async function recordMetrics(counters: Record<string, number>): Promise<void> {
+  try {
+    const inc: Record<string, unknown> = { updatedAt: Date.now() };
+    for (const [k, v] of Object.entries(counters)) {
+      if (v) inc[k] = admin.firestore.FieldValue.increment(v);
+    }
+    await admin.firestore().collection("ops_metrics").doc(dayKeyUtc(Date.now())).set(inc, { merge: true });
+  } catch (error) {
+    logger.error("recordMetrics: no se pudo escribir ops_metrics", error);
+  }
+}
+
+function toBlobInfo(f: { name: string; metadata: Record<string, unknown> }): BlobInfo {
+  const t = Date.parse(String(f.metadata.timeCreated ?? ""));
+  const u = Date.parse(String(f.metadata.updated ?? ""));
+  const valid = [t, u].filter((x) => Number.isFinite(x));
+  return { name: f.name, createdMs: valid.length ? Math.max(...valid) : null };
+}
+
+// Buckets cuyas download URLs pueden aparecer en docs (nuevo y legado durante la migración).
+// El real va primero: un blob referenciado cuesta 1 consulta; solo un huérfano agota las 4.
+const URL_BUCKETS = (process.env.URL_BUCKETS ??
+  "boomday-e2308.firebasestorage.app,boomday-e2308.appspot.com,boomday-85bef.firebasestorage.app,boomday-85bef.appspot.com")
+  .split(",").map((s) => s.trim()).filter(Boolean);
+
+/** Consulta de rango sobre un único campo (índice automático, sin índice compuesto) + comparación exacta del path decodificado. */
+async function isPathReferenced(path: string, kind: BlobKind): Promise<boolean> {
+  const field = kind === "video" ? "videoUrl" : "thumbnailUrl";
+  const db = admin.firestore();
+  for (const bucket of URL_BUCKETS) {
+    const prefix = `https://firebasestorage.googleapis.com/v0/b/${bucket}/o/${encodeURIComponent(path)}?`;
+    const snap = await db
+      .collection("videos")
+      .where(field, ">=", prefix)
+      .where(field, "<", prefix + "")
+      .select(field)
+      .limit(5)
+      .get();
+    if (snap.docs.some((d) => extractPathExact(String(d.get(field) ?? "")) === path)) return true;
+  }
+  return false;
+}
+
+const structuredLog: OrphanDeps["log"] = (level, message, data) => logger[level](message, data ?? {});
+
+/**
+ * Borra blobs de videos/ y thumbnails/ sin doc en Firestore y con edad > gracia (2 h por
+ * defecto, mínimo duro 1 h). DRY-RUN por defecto: para activar el borrado real hay que
+ * desplegar con ORPHAN_CLEANUP_DRY_RUN=false (decisión del titular tras revisar los logs).
+ * Parámetros: ORPHAN_GRACE_HOURS, ORPHAN_MAX_DELETES, ORPHAN_MAX_RATIO, ORPHAN_RATIO_MIN_SAMPLE.
+ */
+export const cleanupOrphanedBlobs = onSchedule(
+  {
+    schedule: "every 6 hours",
+    timeZone: "America/Bogota",
+    timeoutSeconds: 300,
+    memory: "256MiB",
+    maxInstances: 1
+  },
+  async () => {
+    const bucket = admin.storage().bucket();
+    const cfg = configFromEnv(process.env);
+    const stats = await runOrphanCleanup(
+      {
+        now: Date.now,
+        log: structuredLog,
+        listPage: async (prefix, pageToken) => {
+          const [files, nextQuery] = await bucket.getFiles({
+            prefix,
+            maxResults: 500,
+            pageToken,
+            autoPaginate: false
+          });
+          return {
+            blobs: files.map((f) => toBlobInfo({ name: f.name, metadata: f.metadata as Record<string, unknown> })),
+            nextToken: (nextQuery as { pageToken?: string } | null | undefined)?.pageToken
+          };
+        },
+        isReferenced: isPathReferenced,
+        deleteBlob: async (path) => {
+          await bucket.file(path).delete({ ignoreNotFound: true });
+        }
+      },
+      cfg
+    );
+    await recordMetrics({
+      orphan_runs: 1,
+      orphan_listed: stats.listed,
+      orphan_deleted: stats.deleted,
+      orphan_would_delete: stats.wouldDelete,
+      orphan_failed: stats.deleteFailed + stats.lookupFailed,
+      orphan_brake_trips: stats.brakeTripped ? 1 : 0
+    });
+  }
+);
+
+async function applyUploadQuota(objectPath: string, bucketName: string): Promise<boolean> {
+  const { limit, dryRun } = quotaFromEnv(process.env);
+  const bucket = admin.storage().bucket(bucketName);
+  const result = await enforceUploadQuota(
+    {
+      now: Date.now,
+      log: structuredLog,
+      listUserBlobs: async (prefix) => {
+        const [files] = await bucket.getFiles({ prefix, autoPaginate: true, maxResults: 1000 });
+        return files.map((f) => toBlobInfo({ name: f.name, metadata: f.metadata as Record<string, unknown> }));
+      },
+      deleteBlob: async (path) => {
+        await bucket.file(path).delete({ ignoreNotFound: true });
+      }
+    },
+    objectPath,
+    limit,
+    dryRun
+  );
+  if (result.action === "exceeded-deleted" || result.action === "exceeded-dry-run") {
+    await recordMetrics({ quota_exceeded: 1, quota_deleted: result.action === "exceeded-deleted" ? 1 : 0 });
+  }
+  return result.action === "exceeded-deleted";
+}
 
 // ---------------------------------------------------------------------------
 // Validación server-side de videos subidos
@@ -293,8 +442,17 @@ export const validateUploadedVideo = onObjectFinalized(
     const object = event.data;
     const path = object.name;
 
+    // Cuota de subidas por usuario/24 h (videos y thumbnails). Falla en modo seguro (no borra).
+    if (path && /^(videos|thumbnails)\/[^/]+\/[^/]+$/.test(path)) {
+      try {
+        if (await applyUploadQuota(path, object.bucket)) return; // excedente ya borrado
+      } catch (error) {
+        logger.error(`validateUploadedVideo: error aplicando cuota (${path})`, error);
+      }
+    }
+
     const match = path?.match(/^videos\/([^/]+)\/[^/]+$/);
-    if (!match) return; // thumbnails u otras rutas: fuera de alcance
+    if (!match) return; // thumbnails u otras rutas: sin validación de contenido
     const userId = match[1];
 
     const size = Number(object.size);
@@ -347,3 +505,189 @@ export const validateUploadedVideo = onObjectFinalized(
     logger.info(`validateUploadedVideo: ${path} válido (${container}, ${size} bytes)`);
   }
 );
+
+// ---------------------------------------------------------------------------
+// B3: moderacion y reportes (adaptadores Admin SDK sobre functions/src/moderation.ts)
+// ---------------------------------------------------------------------------
+
+const reportsCol = () => admin.firestore().collection("reports");
+
+const evidenceDeps: EvidenceDeps = {
+  now: Date.now,
+  log: structuredLog,
+  blobExists: async (path) => (await admin.storage().bucket().file(path).exists())[0],
+  copyBlob: async (src, dest) => {
+    const bucket = admin.storage().bucket();
+    await bucket.file(src).copy(bucket.file(dest));
+  },
+  // copy() hereda firebaseStorageDownloadTokens (el token de la videoUrl publica): se anula en el destino.
+  stripToken: async (path) => {
+    await admin.storage().bucket().file(path).setMetadata({ metadata: { firebaseStorageDownloadTokens: null } });
+  },
+  destHasToken: async (path) => {
+    const [md] = await admin.storage().bucket().file(path).getMetadata();
+    const tokens = (md.metadata as Record<string, unknown> | undefined)?.firebaseStorageDownloadTokens;
+    return typeof tokens === "string" ? tokens.length > 0 : tokens != null;
+  },
+  deleteBlob: async (path) => {
+    await admin.storage().bucket().file(path).delete({ ignoreNotFound: true });
+  },
+  countPreservedForVideo: async (videoId) => {
+    // Dos igualdades: no requiere indice compuesto.
+    const snap = await reportsCol().where("reportedVideoId", "==", videoId).where("evidenceState", "==", "preserved").count().get();
+    return snap.data().count;
+  },
+  setReportFields: async (reportId, fields) => {
+    await reportsCol().doc(reportId).set(fields, { merge: true });
+  }
+};
+
+const gateDeps: GateDeps = {
+  log: structuredLog,
+  openReportsForVideo: async (videoId) => {
+    const snap = await reportsCol().where("reportedVideoId", "==", videoId).limit(100).get();
+    return snap.docs
+      .filter((d) => ["pending", "in_review"].includes(String(d.get("status"))))
+      .map((d) => ({ reportId: d.id, report: d.data() as ReportDoc }));
+  },
+  preserve: (reportId, report, force) => preserveEvidence(evidenceDeps, reportId, report, undefined, force)
+};
+
+function dayKeyOf(ms: number): string {
+  return new Date(ms).toISOString().slice(0, 10);
+}
+
+/**
+ * Contador diario por reportero en report_limits/{uid} (solo servidor). Idempotente: el total
+ * queda guardado en el propio reporte (reporterDayCount) dentro de la misma transaccion, de modo
+ * que un reintento del trigger no vuelve a contar.
+ */
+async function countReporterDay(reporterId: string, reportId: string): Promise<number> {
+  const db = admin.firestore();
+  const limitRef = db.collection("report_limits").doc(reporterId);
+  const reportRef = reportsCol().doc(reportId);
+  return db.runTransaction(async (tx) => {
+    const [limitSnap, reportSnap] = await Promise.all([tx.get(limitRef), tx.get(reportRef)]);
+    const already = reportSnap.get("reporterDayCount");
+    if (typeof already === "number") return already;
+    const today = dayKeyOf(Date.now());
+    const count = (limitSnap.get("dayKey") === today ? Number(limitSnap.get("count")) || 0 : 0) + 1;
+    tx.set(limitRef, { dayKey: today, count, updatedAt: Date.now() });
+    tx.set(reportRef, { reporterDayCount: count }, { merge: true });
+    return count;
+  });
+}
+
+/**
+ * Al crear un reporte: cuenta el uso diario del reportero (exceso => solo se marca, NO se borra
+ * ni se auto-resuelve nada) y copia el blob reportado a moderation_evidence/<reportId>/.
+ * retry: true; preserveEvidence es idempotente y lanza solo ante errores transitorios.
+ */
+export const onReportCreated = onDocumentCreated(
+  { document: "reports/{reportId}", retry: true, memory: "256MiB", timeoutSeconds: 120, maxInstances: 5 },
+  async (event) => {
+    const snap = event.data;
+    if (!snap) return;
+    await handleNewReport(
+      { ...evidenceDeps, countReporterDay },
+      event.params.reportId,
+      snap.data() as ReportDoc,
+      reportLimitFromEnv(process.env)
+    );
+  }
+);
+
+/**
+ * Purga la evidencia vencida (30 dias tras resolver, tope 90 dias desde la copia).
+ * DRY-RUN por defecto: desplegar con EVIDENCE_PURGE_DRY_RUN=false para borrar de verdad.
+ */
+export const purgeModerationEvidence = onSchedule(
+  { schedule: "every 24 hours", timeZone: "America/Bogota", timeoutSeconds: 300, memory: "256MiB", maxInstances: 1 },
+  async () => {
+    const bucket = admin.storage().bucket();
+    await runEvidencePurge(
+      {
+        now: Date.now,
+        log: structuredLog,
+        // Dos consultas de rango de un solo campo (indices automaticos): tope absoluto y resueltos.
+        listCandidates: async (nowMs) => {
+          const out: PurgeCandidate[] = [];
+          const retentionAgo = nowMs - 30 * 24 * 3600 * 1000;
+          const queries = [
+            reportsCol().where("evidenceExpiresAt", "<=", nowMs).limit(200),
+            reportsCol().where("reviewedAt", "<=", retentionAgo).limit(200)
+          ];
+          for (const q of queries) {
+            for (const d of (await q.get()).docs) {
+              out.push({
+                reportId: d.id,
+                status: String(d.get("status")),
+                reviewedAt: d.get("reviewedAt"),
+                evidenceState: d.get("evidenceState"),
+                evidencePath: d.get("evidencePath"),
+                evidenceExpiresAt: d.get("evidenceExpiresAt")
+              });
+            }
+          }
+          return out;
+        },
+        listBlobs: async (prefix) => (await bucket.getFiles({ prefix, maxResults: 100 }))[0].map((f) => f.name),
+        deleteBlob: async (path) => {
+          if (!path.startsWith(EVIDENCE_ROOT)) throw new Error("fuera de moderation_evidence/");
+          await bucket.file(path).delete({ ignoreNotFound: true });
+        },
+        markPurged: async (reportId) => {
+          await reportsCol().doc(reportId).set({ evidenceState: "purged", evidencePurgedAt: Date.now() }, { merge: true });
+        }
+      },
+      purgeConfigFromEnv(process.env)
+    );
+  }
+);
+
+/**
+ * Retiro de contenido por un moderador autorizado (custom claim moderator == true). Exige un
+ * reporte in_review; preserva evidencia, deja registro en moderation_actions, borra blob y doc
+ * (el Feed/Ranking/Explore solo leen docs existentes, no hace falta filtro adicional) y cierra el
+ * reporte como resolved/content_removed. Nunca se dispara automaticamente.
+ */
+export const moderatorRemoveVideo = onCall({ memory: "256MiB", timeoutSeconds: 120, maxInstances: 5 }, async (request) => {
+  const db = admin.firestore();
+  const bucket = admin.storage().bucket();
+  try {
+    const result = await removeReportedVideo(
+      {
+        now: Date.now,
+        log: structuredLog,
+        getReport: async (id) => {
+          const s = await reportsCol().doc(id).get();
+          return s.exists ? (s.data() as ReportDoc) : null;
+        },
+        getVideo: async (id) => {
+          const s = await db.collection("videos").doc(id).get();
+          return s.exists ? { userId: String(s.get("userId")), videoUrl: s.get("videoUrl"), thumbnailUrl: s.get("thumbnailUrl"), createdAt: s.get("createdAt") } : null;
+        },
+        preserve: (id, report) => preserveEvidence(evidenceDeps, id, report, undefined, true),
+        writeAction: async (id, data) => {
+          await db.collection("moderation_actions").doc(id).set(data, { merge: true });
+        },
+        deleteBlob: async (path) => {
+          await bucket.file(path).delete({ ignoreNotFound: true });
+        },
+        deleteVideoDoc: async (videoId) => {
+          await db.recursiveDelete(db.collection("videos").doc(videoId));
+        },
+        resolveReport: async (id, fields) => {
+          await reportsCol().doc(id).set(fields, { merge: true });
+        }
+      },
+      { uid: request.auth?.uid, isModerator: request.auth?.token?.moderator === true },
+      request.data?.reportId
+    );
+    return { ok: result.removed, evidence: result.evidence, reason: result.removed ? undefined : "video-not-found" };
+  } catch (e) {
+    if (e instanceof ModerationError) throw new HttpsError(e.code, e.message);
+    logger.error("moderatorRemoveVideo: error inesperado", e);
+    throw new HttpsError("internal", "Error interno");
+  }
+});
