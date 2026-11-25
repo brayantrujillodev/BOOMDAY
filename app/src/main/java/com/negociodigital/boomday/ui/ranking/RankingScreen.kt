@@ -29,6 +29,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -63,6 +65,9 @@ import java.util.Locale
 @Composable
 fun RankingScreen(viewModel: RankingViewModel = hiltViewModel()) {
     val rankingState by viewModel.rankingState.collectAsState()
+
+    // Al volver a la pestaña (o tras publicar un video) recarga si estaba en Error o desactualizado.
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { viewModel.onScreenResumed() }
 
     Column(
         modifier = Modifier

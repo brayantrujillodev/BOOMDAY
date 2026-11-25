@@ -64,6 +64,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
@@ -73,6 +74,7 @@ import androidx.media3.ui.PlayerView
 import coil.compose.AsyncImage
 import com.negociodigital.boomday.R
 import com.negociodigital.boomday.data.model.Video
+import com.negociodigital.boomday.data.repository.ReportReasons
 import com.negociodigital.boomday.ui.util.formatCount
 import kotlinx.coroutines.delay
 
@@ -97,6 +99,9 @@ fun FeedScreen(
     viewModel: FeedViewModel = hiltViewModel()
 ) {
     val feedState by viewModel.feedState.collectAsState()
+
+    // Al volver a la pestaña con el feed en Error: un reintento automático (ver ViewModel).
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { viewModel.onScreenResumed() }
     val actionMessageRes by viewModel.actionMessage.collectAsState()
     val actionMessage = actionMessageRes?.let { stringResource(it) }
 
@@ -129,6 +134,8 @@ fun FeedScreen(
                 is FeedState.Success -> FeedPagerContent(
                     videos = state.videos,
                     isRefreshing = false,
+                    nextPage = state.nextPage,
+                    onLoadMore = viewModel::loadNextPage,
                     onVideoViewed = viewModel::onVideoViewed,
                     onProfileClick = onProfileClick,
                     onCommentsClick = onCommentsClick,
@@ -149,7 +156,7 @@ fun FeedScreen(
                 FeedState.Empty -> FeedEmptyState(onRefresh = viewModel::refreshFeed)
 
                 is FeedState.Error -> FeedErrorState(
-                    message = state.message,
+                    messageRes = state.messageRes,
                     onRetry = viewModel::refreshFeed
                 )
             }
@@ -197,6 +204,8 @@ fun FeedScreen(
 private fun FeedPagerContent(
     videos: List<Video>,
     isRefreshing: Boolean,
+    nextPage: NextPageState = NextPageState.End,
+    onLoadMore: () -> Unit = {},
     onVideoViewed: (String) -> Unit,
     onProfileClick: () -> Unit,
     onCommentsClick: (String) -> Unit,
@@ -233,6 +242,12 @@ private fun FeedPagerContent(
     }
 
     val pagerState = rememberPagerState(pageCount = { videos.size })
+
+    // Paginación: al acercarse al final (últimas 3 páginas) y con la siguiente en Idle se
+    // pide más. En Error NO se reintenta solo (evita bucle): el usuario pulsa "Reintentar".
+    LaunchedEffect(pagerState.currentPage, videos.size, nextPage) {
+        if (nextPage == NextPageState.Idle && pagerState.currentPage >= videos.size - 3) onLoadMore()
+    }
 
     // IMPORTANTE: la key del efecto de abajo NUNCA debe ser `videos` (la lista completa).
     // `Video` es un data class con igualdad estructural, y `views` de CUALQUIER video de la
@@ -306,6 +321,18 @@ private fun FeedPagerContent(
 
         if (isRefreshing) {
             FeedRefreshingBanner(modifier = Modifier.align(Alignment.TopCenter))
+        }
+
+        when (nextPage) {
+            NextPageState.Loading -> CircularProgressIndicator(
+                modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 16.dp).size(24.dp),
+                strokeWidth = 2.dp
+            )
+            NextPageState.Error -> TextButton(
+                onClick = onLoadMore,
+                modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 16.dp)
+            ) { Text(stringResource(R.string.feed_next_page_retry)) }
+            else -> Unit
         }
     }
 }
@@ -625,7 +652,7 @@ private fun FeedEmptyState(onRefresh: () -> Unit) {
 }
 
 @Composable
-private fun FeedErrorState(message: String, onRetry: () -> Unit) {
+private fun FeedErrorState(@StringRes messageRes: Int, onRetry: () -> Unit) {
     Box(
         modifier = Modifier.fillMaxSize(),
         contentAlignment = Alignment.Center
@@ -644,7 +671,7 @@ private fun FeedErrorState(message: String, onRetry: () -> Unit) {
             )
             Spacer(modifier = Modifier.height(8.dp))
             Text(
-                text = message,
+                text = stringResource(messageRes),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center
@@ -699,10 +726,12 @@ private fun FeedMoreOptionsDialog(
 private data class ReportReason(val id: String, @StringRes val labelRes: Int)
 
 private val reportReasons = listOf(
-    ReportReason("inappropriate", R.string.feed_report_reason_inappropriate),
-    ReportReason("spam", R.string.feed_report_reason_spam),
-    ReportReason("harassment", R.string.feed_report_reason_harassment),
-    ReportReason("other", R.string.feed_report_reason_other)
+    ReportReason(ReportReasons.SPAM, R.string.feed_report_reason_spam),
+    ReportReason(ReportReasons.HARASSMENT, R.string.feed_report_reason_harassment),
+    ReportReason(ReportReasons.SEXUAL, R.string.feed_report_reason_sexual),
+    ReportReason(ReportReasons.VIOLENCE, R.string.feed_report_reason_violence),
+    ReportReason(ReportReasons.ILLEGAL, R.string.feed_report_reason_illegal),
+    ReportReason(ReportReasons.OTHER, R.string.feed_report_reason_other)
 )
 
 @Composable
@@ -740,7 +769,7 @@ private fun FeedReportDialog(
             }
         },
         confirmButton = {
-            // Se envía el id estable (p.ej. "inappropriate"), no el texto ya traducido: así
+            // Se envía el código estable del catálogo cerrado (p.ej. "spam", ver ReportReasons), no el texto ya traducido: así
             // el campo `reason` en Firestore es consistente sin importar el idioma del
             // dispositivo que reporta, y se puede filtrar/agrupar en revisión administrativa.
             TextButton(onClick = { onSubmit(selectedReason) }) {

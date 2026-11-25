@@ -17,6 +17,9 @@ sealed class UploadException(message: String, cause: Throwable? = null) : Except
     /** videos/{videoId} ya existe pero pertenece a otro usuario: no se pisa. */
     class IdConflict(val videoId: String) : UploadException("Video id belongs to another user: $videoId")
 
+    /** No se pudo obtener el ID token vigente (sin red / timeout): no se inventa identidad. */
+    class IdentityUnavailable(cause: Throwable? = null) : UploadException("ID token unavailable", cause)
+
     /** El flow terminó sin emitir Success/Error/Cancelled (no debería ocurrir). */
     class Incomplete : UploadException("Upload flow ended without terminal status")
 }

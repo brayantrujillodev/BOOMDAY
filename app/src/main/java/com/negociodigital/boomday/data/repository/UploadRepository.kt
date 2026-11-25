@@ -17,6 +17,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import timber.log.Timber
@@ -26,6 +27,7 @@ import javax.inject.Singleton
 private const val MIN_DURATION_SECONDS = 3
 private const val MAX_DURATION_SECONDS = 60
 private const val SAVE_TIMEOUT_MS = 30_000L
+private const val IDENTITY_TIMEOUT_MS = 10_000L
 
 /**
  * Orquesta el flujo completo de subida de un video: valida duración, sube el blob a
@@ -147,10 +149,26 @@ class UploadRepository @Inject constructor(
         durationSeconds: Int,
         videoId: String?
     ): UploadStatus {
+        // userName/userAvatar salen de los claims del ID token vigente (lo que verá la regla
+        // de Firestore), no de displayName/photoUrl locales que pueden estar desfasados.
+        val identity = try {
+            identityProvider(currentUser)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Timber.e(e, "UploadRepository: no se pudo obtener el ID token para la identidad")
+            withContext(NonCancellable) {
+                storageRepository.deleteFileByUrl(videoUrl).onFailure {
+                    Timber.e(it, "UploadRepository: No se pudo borrar el blob huérfano: $videoUrl")
+                }
+            }
+            return UploadStatus.Error(UploadException.IdentityUnavailable(e))
+        }
+
         val video = Video(
             userId = currentUser.uid,
-            userName = currentUser.displayName.orEmpty(),
-            userAvatar = currentUser.photoUrl?.toString().orEmpty(),
+            userName = identity.name,
+            userAvatar = identity.picture,
             videoUrl = videoUrl,
             title = title,
             description = description,
@@ -200,6 +218,25 @@ class UploadRepository @Inject constructor(
                 }
                 UploadStatus.Error(error)
             }
+        )
+    }
+
+    /** Timeout de getIdToken. internal var solo para pruebas. */
+    internal var identityTimeoutMs: Long = IDENTITY_TIMEOUT_MS
+
+    /** Identidad publicable: claims `name`/`picture` del ID token ('' si no existen). */
+    internal data class Identity(val name: String, val picture: String)
+
+    /**
+     * Proveedor de identidad (claims del ID token, timeout acotado). Lanza si no hay token.
+     * internal var solo para pruebas JVM (Task/GetTokenResult de Firebase).
+     */
+    internal var identityProvider: suspend (FirebaseUser) -> Identity = { user ->
+        val claims = withTimeoutOrNull(identityTimeoutMs) { user.getIdToken(false).await().claims }
+            ?: throw java.util.concurrent.TimeoutException("getIdToken excedió ${identityTimeoutMs}ms")
+        Identity(
+            name = claims["name"] as? String ?: "",
+            picture = claims["picture"] as? String ?: ""
         )
     }
 

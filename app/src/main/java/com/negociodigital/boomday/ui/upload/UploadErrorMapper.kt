@@ -19,6 +19,7 @@ fun uploadErrorMessageRes(t: Throwable): Int = when (t) {
     is UploadException.InvalidDuration -> R.string.upload_error_invalid_duration
     is UploadException.CannotReadVideo -> R.string.upload_error_read_video
     is UploadException.Timeout -> R.string.upload_error_timeout
+    is UploadException.IdentityUnavailable -> R.string.upload_error_identity
     is UploadException.Incomplete -> R.string.upload_error_unknown
     is SocketTimeoutException -> R.string.upload_error_timeout
     is FirebaseNetworkException -> R.string.upload_error_network

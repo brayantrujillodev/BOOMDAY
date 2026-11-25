@@ -62,6 +62,7 @@
     <string name="upload_error_network">No hay conexión con el servidor. Revisa tu internet e inténtalo de nuevo.</string>
     <string name="upload_error_timeout">La subida tardó demasiado. Revisa tu conexión e inténtalo de nuevo.</string>
     <string name="upload_error_permission">No tienes permiso para publicar este video. Cierra sesión, vuelve a entrar e inténtalo de nuevo.</string>
+    <string name="upload_error_identity">No pudimos verificar tu sesión. Revisa tu conexión e inténtalo de nuevo.</string>
     <string name="upload_error_quota">El servicio no puede recibir más videos por ahora. Inténtalo más tarde.</string>
     <string name="upload_error_unknown">Ocurrió un error inesperado al subir el video. Inténtalo de nuevo.</string>
 
@@ -73,6 +74,7 @@
 
     <!-- Feed -->
     <string name="feed_refreshing_label">Actualizando…</string>
+    <string name="feed_next_page_retry">No se pudieron cargar más videos. Reintentar</string>
     <string name="feed_loading_cd">Cargando feed</string>
     <string name="feed_player_cd">Reproductor de video</string>
     <string name="feed_thumbnail_cd">Miniatura del video</string>
@@ -85,16 +87,21 @@
     <string name="feed_empty_refresh_button">Actualizar</string>
     <string name="feed_error_title">No pudimos cargar el feed</string>
     <string name="feed_error_retry_button">Reintentar</string>
+    <string name="feed_error_offline">Sin conexión. Revisa tu internet e inténtalo de nuevo.</string>
+    <string name="feed_error_generic">Ocurrió un error al cargar el feed. Inténtalo de nuevo.</string>
     <string name="feed_more_options_cd">Más opciones</string>
     <string name="feed_more_options_title">Más opciones</string>
     <string name="feed_more_options_report">Reportar contenido</string>
     <string name="feed_more_options_block">Bloquear a @%1$s</string>
     <string name="feed_more_options_cancel">Cancelar</string>
     <string name="feed_report_title">Reportar contenido</string>
-    <string name="feed_report_reason_inappropriate">Contenido inapropiado</string>
     <string name="feed_report_reason_spam">Spam</string>
-    <string name="feed_report_reason_harassment">Violencia o acoso</string>
+    <string name="feed_report_reason_harassment">Acoso o intimidación</string>
+    <string name="feed_report_reason_sexual">Contenido sexual</string>
+    <string name="feed_report_reason_violence">Violencia</string>
+    <string name="feed_report_reason_illegal">Contenido ilegal</string>
     <string name="feed_report_reason_other">Otro</string>
+
     <string name="feed_report_submit_button">Enviar</string>
     <string name="feed_report_cancel_button">Cancelar</string>
     <string name="feed_block_title">Bloquear a @%1$s</string>
@@ -103,6 +110,7 @@
     <string name="feed_block_success_message">Usuario bloqueado. Ya no verás su contenido.</string>
     <string name="feed_block_error_message">No se pudo bloquear al usuario. Intenta de nuevo.</string>
     <string name="feed_report_success_message">Reporte enviado. Gracias por avisarnos.</string>
+    <string name="feed_report_already_message">Ya reportaste este video, o ya no está disponible.</string>
     <string name="feed_report_error_message">No se pudo enviar el reporte. Intenta de nuevo.</string>
     <string name="feed_block_cancel_button">Cancelar</string>
 
@@ -134,6 +142,8 @@
     <string name="explore_empty_subtitle">Prueba con otra búsqueda o vuelve más tarde.</string>
     <string name="explore_error_title">No pudimos cargar Explorar</string>
     <string name="explore_partial_error_message">No pudimos actualizar los resultados</string>
+    <string name="explore_error_offline">Sin conexión. Revisa tu internet e inténtalo de nuevo.</string>
+    <string name="explore_error_generic">Ocurrió un error al cargar Explorar. Inténtalo de nuevo.</string>
     <string name="explore_retry_button">Reintentar</string>
     <string name="explore_loading_cd">Cargando</string>
     <string name="explore_thumbnail_cd">Miniatura del video de %1$s</string>

@@ -1,6 +1,7 @@
 package com.negociodigital.boomday.data.repository
 
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
@@ -17,6 +18,17 @@ import kotlinx.coroutines.tasks.await
 import timber.log.Timber
 import javax.inject.Inject
 import javax.inject.Singleton
+
+/**
+ * Una página del feed. [nextCursor] es opaco para quien consume (internamente un
+ * DocumentSnapshot): se devuelve tal cual a [VideoRepository.getTodayVideosPage].
+ * [endReached] = true cuando el servidor devolvió menos documentos que el tamaño de página.
+ */
+data class VideoPage(
+    val videos: List<Video>,
+    val nextCursor: Any?,
+    val endReached: Boolean
+)
 
 @Singleton
 class VideoRepository @Inject constructor(
@@ -109,6 +121,45 @@ class VideoRepository @Inject constructor(
 
         awaitClose { listener.remove() }
     }.flowOn(Dispatchers.IO)
+
+    /**
+     * Una página (lectura única, sin listener) del mismo orden que [getTodayVideos]:
+     * createdAt > hace 24h, createdAt DESC. Paginación por cursor ([cursor] = nextCursor de
+     * la página anterior, null para la primera) con startAfter(DocumentSnapshot): no hay
+     * duplicados ni saltos aunque dos videos compartan createdAt. Usa solo el índice
+     * automático de un campo (createdAt), no requiere índice compuesto.
+     */
+    suspend fun getTodayVideosPage(cursor: Any?, pageSize: Int): Result<VideoPage> {
+        return try {
+            val yesterday = System.currentTimeMillis() - (24 * 60 * 60 * 1000)
+            var query = videosCollection
+                .whereGreaterThan("createdAt", yesterday)
+                .orderBy("createdAt", Query.Direction.DESCENDING)
+            if (cursor is DocumentSnapshot) query = query.startAfter(cursor)
+            val snapshot = query.limit(pageSize.toLong()).get().await()
+
+            val videos = snapshot.documents.mapNotNull { doc ->
+                try {
+                    doc.toObject(Video::class.java)?.copy(videoId = doc.id)
+                } catch (e: Exception) {
+                    Timber.e(e, "VideoRepository: Error parseando video: ${doc.id}")
+                    null
+                }
+            }
+            Result.success(
+                VideoPage(
+                    videos = videos,
+                    nextCursor = snapshot.documents.lastOrNull() ?: cursor,
+                    endReached = snapshot.size() < pageSize
+                )
+            )
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Timber.e(e, "VideoRepository: Error obteniendo página del feed")
+            Result.failure(e)
+        }
+    }
 
     /**
      * Obtiene los videos más vistos del día calendario actual (zona horaria

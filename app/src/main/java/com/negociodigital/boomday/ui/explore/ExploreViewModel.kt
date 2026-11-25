@@ -2,7 +2,10 @@ package com.negociodigital.boomday.ui.explore
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.annotation.StringRes
 import com.google.firebase.auth.FirebaseAuth
+import com.negociodigital.boomday.R
+import com.negociodigital.boomday.ui.util.isOfflineError
 import com.negociodigital.boomday.data.model.Video
 import com.negociodigital.boomday.data.repository.UserRepository
 import com.negociodigital.boomday.data.repository.VideoRepository
@@ -25,7 +28,8 @@ import javax.inject.Inject
 
 data class ExploreUiState(
     val isLoading: Boolean = true,
-    val error: String? = null,
+    /** String resource en español (nunca el mensaje crudo del SDK). */
+    @StringRes val error: Int? = null,
     val trending: List<Video> = emptyList(),
     val recent: List<Video> = emptyList(),
     val query: String = ""
@@ -61,9 +65,28 @@ class ExploreViewModel @Inject constructor(
         query.value = q
     }
 
+    /** Idempotente: con una carga en curso no se relanza (evita dobles cargas por doble tap). */
     fun refresh() {
+        if (source.value.isLoading && loadJob?.isActive == true) return
         load()
     }
+
+    private var autoRetried = false
+
+    /**
+     * ON_RESUME de la pestaña: si Explorar está en Error sin datos, reintenta UNA vez
+     * (la bandera se limpia al cargar sin error), sin polling ni bucles.
+     */
+    fun onScreenResumed() {
+        val st = source.value
+        if (st.error != null && !st.isLoading && !autoRetried) {
+            autoRetried = true
+            load()
+        }
+    }
+
+    private fun errorFor(e: Throwable): Int =
+        if (e.isOfflineError()) R.string.explore_error_offline else R.string.explore_error_generic
 
     private fun load() {
         loadJob?.cancel()
@@ -78,14 +101,12 @@ class ExploreViewModel @Inject constructor(
                 throw e
             } catch (e: Exception) {
                 Timber.e(e, "ExploreViewModel: Error obteniendo usuarios bloqueados")
-                source.update {
-                    it.copy(isLoading = false, error = e.message ?: "Error al cargar Explorar")
-                }
+                source.update { it.copy(isLoading = false, error = errorFor(e)) }
                 return@launch
             }
             if (blockedUserIds == null) {
                 Timber.e("ExploreViewModel: Timeout obteniendo usuarios bloqueados")
-                source.update { it.copy(isLoading = false, error = NO_CONNECTION) }
+                source.update { it.copy(isLoading = false, error = R.string.explore_error_offline) }
                 return@launch
             }
 
@@ -97,6 +118,7 @@ class ExploreViewModel @Inject constructor(
                 if (pending == 0) {
                     timeoutJob?.cancel()
                     source.update { it.copy(isLoading = false) }
+                    if (source.value.error == null) autoRetried = false
                 }
             }
 
@@ -109,7 +131,7 @@ class ExploreViewModel @Inject constructor(
                 flow
                     .catch { e ->
                         Timber.e(e, "ExploreViewModel: Error cargando $what")
-                        source.update { it.copy(error = e.message ?: "Error al cargar Explorar") }
+                        source.update { it.copy(error = errorFor(e)) }
                         if (!responded) {
                             responded = true
                             settle()
@@ -128,7 +150,7 @@ class ExploreViewModel @Inject constructor(
                 delay(LOAD_TIMEOUT_MS)
                 if (pending > 0) {
                     Timber.e("ExploreViewModel: Timeout cargando Explorar")
-                    source.update { it.copy(isLoading = false, error = it.error ?: NO_CONNECTION) }
+                    source.update { it.copy(isLoading = false, error = it.error ?: R.string.explore_error_offline) }
                 }
             }
             collectFlow("trending", videoRepository.getTopVideos()) { st, v -> st.copy(trending = v) }
@@ -147,6 +169,5 @@ class ExploreViewModel @Inject constructor(
     private companion object {
         const val LOAD_TIMEOUT_MS = 15_000L
         const val RECENT_LIMIT = 50
-        const val NO_CONNECTION = "Sin conexión"
     }
 }

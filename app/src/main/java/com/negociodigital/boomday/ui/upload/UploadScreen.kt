@@ -13,6 +13,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.negociodigital.boomday.ui.util.PublishSignal
 
 /**
  * Límites de duración de video compartidos por toda la capa de UI de upload.
@@ -66,6 +67,11 @@ fun UploadFlowScreen(
         if (current is UploadState.Recorded) {
             lastRecorded = current
         }
+    }
+
+    // Avisa al Ranking de que hubo una publicación (recarga al volver a la pestaña).
+    LaunchedEffect(uploadState is UploadState.Success) {
+        if (uploadState is UploadState.Success) PublishSignal.bump()
     }
 
     fun retryToReviewOrReset() {

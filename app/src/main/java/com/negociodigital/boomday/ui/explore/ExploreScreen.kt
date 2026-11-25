@@ -1,6 +1,9 @@
 package com.negociodigital.boomday.ui.explore
 
+import androidx.annotation.StringRes
 import androidx.compose.foundation.background
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -67,6 +70,7 @@ fun ExploreScreen(
     val state by viewModel.uiState.collectAsState()
     val hasData by remember { derivedStateOf { state.trending.isNotEmpty() || state.recent.isNotEmpty() } }
     val onRetry = remember(viewModel) { viewModel::refresh }
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { viewModel.onScreenResumed() }
     val onQueryChange = remember(viewModel) { viewModel::onQueryChange }
 
     Column(
@@ -95,7 +99,7 @@ fun ExploreScreen(
                 )
             }
             state.isLoading -> ExploreLoadingState()
-            state.error != null -> ExploreErrorState(onRetry = onRetry)
+            state.error != null -> ExploreErrorState(messageRes = state.error!!, onRetry = onRetry)
             else -> ExploreEmptyState()
         }
     }
@@ -285,7 +289,7 @@ private fun ExploreLoadingState() {
 }
 
 @Composable
-private fun ExploreErrorState(onRetry: () -> Unit) {
+private fun ExploreErrorState(@StringRes messageRes: Int, onRetry: () -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -297,6 +301,13 @@ private fun ExploreErrorState(onRetry: () -> Unit) {
             text = stringResource(R.string.explore_error_title),
             style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.Bold,
+            textAlign = TextAlign.Center
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(
+            text = stringResource(messageRes),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center
         )
         Spacer(modifier = Modifier.height(16.dp))

@@ -45,6 +45,7 @@ class UploadRepositoryTest {
         every { auth.currentUser } returns user
         repo = UploadRepository(storage, videos, auth, mockk(relaxed = true))
         repo.durationReader = { 10 }
+        repo.identityProvider = { UploadRepository.Identity("Ana", "") }
         coEvery { storage.deleteFileByUrl(any()) } returns Result.success(Unit)
     }
 

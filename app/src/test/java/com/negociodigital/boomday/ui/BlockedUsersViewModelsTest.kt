@@ -12,6 +12,9 @@ import com.negociodigital.boomday.ui.feed.FeedViewModel
 import com.negociodigital.boomday.ui.ranking.RankingState
 import com.negociodigital.boomday.ui.ranking.RankingViewModel
 import io.mockk.coEvery
+import io.mockk.coVerify
+import com.negociodigital.boomday.data.repository.VideoPage
+import com.negociodigital.boomday.ui.feed.NextPageState
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
@@ -41,8 +44,8 @@ class BlockedUsersViewModelsTest {
     private val reports = mockk<ReportRepository>(relaxed = true)
     private val auth = mockk<FirebaseAuth>()
 
-    private val bad = Video(userId = "bad")
-    private val good = Video(userId = "good")
+    private val bad = Video(videoId = "vb", userId = "bad")
+    private val good = Video(videoId = "vg", userId = "good")
 
     @Before
     fun setUp() {
@@ -50,6 +53,7 @@ class BlockedUsersViewModelsTest {
         val user = mockk<FirebaseUser> { every { uid } returns "me" }
         every { auth.currentUser } returns user
         every { videos.getTodayVideos(any()) } returns flowOf(listOf(bad, good))
+        coEvery { videos.getTodayVideosPage(any(), any()) } returns Result.success(VideoPage(listOf(bad, good), "c", true))
         every { videos.getTopVideos(any()) } returns flowOf(listOf(bad, good))
     }
 
@@ -63,7 +67,7 @@ class BlockedUsersViewModelsTest {
         val vm = FeedViewModel(videos, users, reports, auth)
         advanceUntilIdle()
         assertTrue(vm.feedState.value.toString(), vm.feedState.value is FeedState.Error)
-        verify(exactly = 0) { videos.getTodayVideos(any()) }
+        coVerify(exactly = 0) { videos.getTodayVideosPage(any(), any()) }
     }
 
     @Test
@@ -71,7 +75,7 @@ class BlockedUsersViewModelsTest {
         coEvery { users.getBlockedUsers("me") } returns Result.success(setOf("bad"))
         val vm = FeedViewModel(videos, users, reports, auth)
         advanceUntilIdle()
-        assertEquals(FeedState.Success(listOf(good)), vm.feedState.value)
+        assertEquals(FeedState.Success(listOf(good), NextPageState.End), vm.feedState.value)
     }
 
     @Test
@@ -85,7 +89,7 @@ class BlockedUsersViewModelsTest {
         assertTrue(vm.feedState.value is FeedState.Error)
         vm.refreshFeed()
         advanceUntilIdle()
-        assertEquals(FeedState.Success(listOf(good)), vm.feedState.value)
+        assertEquals(FeedState.Success(listOf(good), NextPageState.End), vm.feedState.value)
     }
 
     @Test
@@ -97,7 +101,7 @@ class BlockedUsersViewModelsTest {
         val vm = FeedViewModel(videos, users, reports, auth)
         advanceUntilIdle()
         assertTrue(vm.feedState.value.toString(), vm.feedState.value is FeedState.Error)
-        verify(exactly = 0) { videos.getTodayVideos(any()) }
+        coVerify(exactly = 0) { videos.getTodayVideosPage(any(), any()) }
     }
 
     // ---- Ranking ----
